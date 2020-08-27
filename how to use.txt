@@ -1,2 +1,3 @@
-python setup.py build develop --no-deps
-python test_net.py --config-file configs/paa_R_50_FPN_1x.yaml  MODEL.WEIGHT paa_res50.pth  TEST.IMS_PER_BATCH 2
+python setup.py build develop
+python val.py
+python train.py --model=weights/R-50.pkl

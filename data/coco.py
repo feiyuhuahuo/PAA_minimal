@@ -40,7 +40,7 @@ class COCODataset(torchvision.datasets.coco.CocoDetection):
         self.contiguous_id_to_class_id = {v: k for k, v in self.class_id_to_contiguous_id.items()}
         self.id_img_map = {k: v for k, v in enumerate(self.ids)}
         self.transform = T.Compose([T.Resize(min_size, max_size),
-                                    # T.RandomHorizontalFlip(flip_prob),
+                                    T.RandomHorizontalFlip(flip_prob),
                                     T.ToTensor(),
                                     T.Normalize(mean=[102.9801, 115.9465, 122.7717], std=[1., 1., 1.],
                                                 to_bgr255=True)])
@@ -58,12 +58,8 @@ class COCODataset(torchvision.datasets.coco.CocoDetection):
         # if all boxes have close to zero area, there is no annotation
         if all(any(o <= 1 for o in obj["bbox"][2:]) for obj in anno):
             return False
-        # keypoints task have a slight different critera for considering
-        # if an annotation is valid
-        if "keypoints" not in anno[0]:
-            return True
 
-        return False
+        return True
 
     def __getitem__(self, idx):
         img, anno = super().__getitem__(idx)

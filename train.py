@@ -45,11 +45,10 @@ for i, (images, targets, _) in enumerate(data_loader, ckpt_iter):
     targets = [target.to(torch.device("cuda")) for target in targets]
 
     with timer.counter('for+loss'):
-        loss_dict = model(images, targets)
+        category_loss, box_loss, iou_loss = model(images, targets)
 
     with timer.counter('backward'):
-        losses = sum(loss for loss in loss_dict.values())
-        losses_reduced = sum(loss for loss in loss_dict.values())
+        losses = category_loss + box_loss + iou_loss
         optimizer.zero_grad()
         losses.backward()
 
@@ -70,7 +69,8 @@ for i, (images, targets, _) in enumerate(data_loader, ckpt_iter):
         seconds = (max_iter - i) * t_t
         eta = str(datetime.timedelta(seconds=seconds)).split('.')[0]
         # seems when printing, need to call .item(), not sure
-        l_c, l_b, l_iou = loss_dict['loss_cls'].item(), loss_dict['loss_reg'].item(), loss_dict['loss_iou_pred'].item()
+        l_c, l_b, l_iou = category_loss.item(), box_loss.item(), iou_loss.item()
+
         print(f'step: {i} | lr: {cur_lr:.2e} | l_class: {l_c:.3f} | l_box: {l_b:.3f} | l_iou: {l_iou:.3f} | '
               f't_t: {t_t:.3f} | t_d: {t_d:.3f} | t_fl: {t_fl:.3f} | t_b: {t_b:.3f} | t_u: {t_u:.3f} | ETA: {eta}')
 

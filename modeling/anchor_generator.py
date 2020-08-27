@@ -6,9 +6,8 @@ import pdb
 
 
 class BufferList(nn.Module):
-    # Similar to nn.ParameterList, but for buffers
     def __init__(self, buffers=None):
-        super(BufferList, self).__init__()
+        super().__init__()
         if buffers is not None:
             self.extend(buffers)
 
@@ -28,15 +27,11 @@ class BufferList(nn.Module):
 class AnchorGenerator(nn.Module):
     def __init__(self, sizes, aspect_ratios, anchor_strides, straddle_thresh=0):
         super().__init__()
+        assert len(anchor_strides) == len(sizes), "len(anchor_strides) != len(sizes)"
 
-        if len(anchor_strides) == 1:
-            anchor_stride = anchor_strides[0]
-            cell_anchors = [generate_anchors(anchor_stride, sizes, aspect_ratios).float()]
-        else:
-            assert len(anchor_strides) == len(sizes), "len(anchor_strides) != len(sizes)"
+        cell_anchors = [generate_cell(one_stride, size, aspect_ratios).float()
+                        for one_stride, size in zip(anchor_strides, sizes)]
 
-            cell_anchors = [generate_anchors(anchor_stride, size, aspect_ratios).float()
-                            for anchor_stride, size in zip(anchor_strides, sizes)]
         self.strides = anchor_strides
         self.cell_anchors = BufferList(cell_anchors)
         self.straddle_thresh = straddle_thresh
@@ -57,19 +52,17 @@ class AnchorGenerator(nn.Module):
 
         return anchors
 
-    def add_visibility_to(self, boxlist):
+    @staticmethod
+    def add_visibility(boxlist):
         image_width, image_height = boxlist.size
         anchors = boxlist.bbox
-        if self.straddle_thresh >= 0:
-            inds_inside = ((anchors[..., 0] >= -self.straddle_thresh)
-                           & (anchors[..., 1] >= -self.straddle_thresh)
-                           & (anchors[..., 2] < image_width + self.straddle_thresh)
-                           & (anchors[..., 3] < image_height + self.straddle_thresh))
-        else:
-            device = anchors.device
-            inds_inside = torch.ones(anchors.shape[0], dtype=torch.uint8, device=device)
 
-        boxlist.add_field("visibility", inds_inside)
+        index_inside = ((anchors[..., 0] >= 0)
+                       & (anchors[..., 1] >= 0)
+                       & (anchors[..., 2] < image_width)
+                       & (anchors[..., 3] < image_height))
+
+        boxlist.add_field("visibility", index_inside)
 
     def forward(self, image_list, feature_maps):
         grid_sizes = [feature_map.shape[-2:] for feature_map in feature_maps]
@@ -81,7 +74,7 @@ class AnchorGenerator(nn.Module):
 
             for anchors_per_fm in anchors_all_fm:
                 boxlist = BoxList(anchors_per_fm, (image_width, image_height), mode="xyxy")
-                self.add_visibility_to(boxlist)
+                # self.add_visibility(boxlist)
                 anchors_in_image.append(boxlist)
 
             anchors.append(anchors_in_image)
@@ -89,14 +82,10 @@ class AnchorGenerator(nn.Module):
         return anchors
 
 
-def generate_anchors(stride, sizes, aspect_ratios):
-    """Generates a matrix of anchor boxes in (x1, y1, x2, y2) format. Anchors
-    are centered on stride / 2, have (approximate) sqrt areas of the specified
-    sizes, and aspect ratios as given.
-    """
+def generate_cell(stride, sizes, aspect_ratios):
+    # Generates a matrix of anchor boxes in (x1, y1, x2, y2) format. Anchors are centered on stride / 2.
     scales = np.array(sizes, dtype=np.float) / stride
     aspect_ratios = np.array(aspect_ratios, dtype=np.float)
-
     anchor = np.array([1, 1, stride, stride], dtype=np.float) - 0.5
     anchors = _ratio_enum(anchor, aspect_ratios)
     anchors = np.vstack([_scale_enum(anchors[i, :], scales) for i in range(anchors.shape[0])])

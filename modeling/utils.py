@@ -51,27 +51,30 @@ def permute_and_flatten(layer, N, A, C, H, W):
     return layer
 
 
-def concat_box_prediction_layers(box_cls, box_regression):
-    category, box = [], []
+def concat_fpn_pred(c_pred, box_pred, iou_pred, anchors):
+    bs = c_pred[0].shape[0]
+    c_all_level, box_all_level = [], []
 
-    # for each feature level, permute the outputs to make them be in the
-    # same format as the labels. Note that the labels are computed for
-    # all feature levels concatenated, so we keep the same representation
-    # for the objectness and the box_regression
-    for box_cls_per_level, box_regression_per_level in zip(box_cls, box_regression):
-        N, AxC, H, W = box_cls_per_level.shape
-        Ax4 = box_regression_per_level.shape[1]
+    for c_per_level, box_per_level in zip(c_pred, box_pred):
+        N, AxC, H, W = c_per_level.shape
+        Ax4 = box_per_level.shape[1]
         A = Ax4 // 4
         C = AxC // A
-        box_cls_per_level = permute_and_flatten(box_cls_per_level, N, A, C, H, W)
-        category.append(box_cls_per_level)
+        c_per_level = permute_and_flatten(c_per_level, N, A, C, H, W)
+        box_per_level = permute_and_flatten(box_per_level, N, A, 4, H, W)
 
-        box_regression_per_level = permute_and_flatten(box_regression_per_level, N, A, 4, H, W)
-        box.append(box_regression_per_level)
+        c_all_level.append(c_per_level)
+        box_all_level.append(box_per_level)
 
-    box_cls = cat(category, dim=1).reshape(-1, C)
-    box_regression = cat(box, dim=1).reshape(-1, 4)
-    return box_cls, box_regression
+    c_flatten = cat(c_all_level, dim=1).reshape(-1, C)
+    box_flatten = cat(box_all_level, dim=1).reshape(-1, 4)
+
+    iou_pred_flatten = [aa.permute(0, 2, 3, 1).reshape(bs, -1, 1) for aa in iou_pred]
+    iou_pred_flatten = torch.cat(iou_pred_flatten, dim=1).reshape(-1)
+
+    anchor_flatten = torch.cat([cat_boxlist(anchor_per_img).bbox for anchor_per_img in anchors], dim=0)
+
+    return c_flatten, box_flatten, iou_pred_flatten, anchor_flatten
 
 
 def encode(gt_boxes, anchors):
@@ -252,3 +255,32 @@ class PAAPostProcessor(torch.nn.Module):
                         result.bbox[result_inds] = boxlist_for_class_nmsed_.bbox
             results.append(result)
         return results
+
+
+def match(iou_matrix, high_thre, low_thre):
+    if iou_matrix.numel() == 0:
+        # empty targets or proposals not supported during training
+        if iou_matrix.shape[0] == 0:
+            raise ValueError('No ground-truth boxes available for one of the images')
+        else:
+            raise ValueError('No proposal boxes available for one of the images')
+
+    # find max IoU gt for each anchor
+    matched_vals, match_i = iou_matrix.max(dim=0)
+    match_i_clone = match_i.clone()
+
+    # Assign candidate match_i with low quality to negative (unassigned) values
+    below_low_thre = matched_vals < low_thre
+    between_thre = (matched_vals >= low_thre) & (matched_vals < high_thre)
+    match_i[below_low_thre] = -1
+    match_i[between_thre] = -2
+
+    # For each gt, find the prediction with which it has the highest IoU
+    max_dt_per_gt, cc = iou_matrix.max(dim=1)
+    # Find highest quality match available, even if it is low
+    dt_index_per_gt = torch.nonzero(iou_matrix == max_dt_per_gt[:, None])
+
+    index_to_update = dt_index_per_gt[:, 1]
+    match_i[index_to_update] = match_i_clone[index_to_update]
+
+    return match_i

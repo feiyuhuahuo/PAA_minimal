@@ -32,10 +32,7 @@ def inference(model, cfg, training=False):
               "a contiguous set. Some images might be missing from the evaluation")
 
     predictions = [predictions[i] for i in image_ids]
-    if not training:
-        torch.save(predictions, 'predictions.pth')
-
-    do_coco_evaluation(dataset=data_loader.dataset, predictions=predictions, cfg=cfg)
+    do_coco_evaluation(dataset=val_loader.dataset, predictions=predictions, cfg=cfg)
 
 
 if __name__ == '__main__':

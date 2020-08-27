@@ -1,19 +1,16 @@
 import torch
 import pdb
 from torch import nn
-from modeling.utils import concat_box_prediction_layers, encode, decode
+from modeling.utils import concat_fpn_pred, encode, decode, match
 from modeling.sigmoid_focal_loss import focal_loss_cuda, focal_loss_cpu
-from modeling.matcher import Matcher
 from utils.boxlist_ops import boxlist_iou, cat_boxlist
 import sklearn.mixture as skm
 
 
-class PAALossComputation:
+class PAALoss:
     def __init__(self, cfg):
         self.cfg = cfg
-        # self.c_loss_func = SigmoidFocalLoss(cfg.loss_gamma, cfg.loss_alpha)
         self.iou_bce_loss = nn.BCEWithLogitsLoss(reduction="sum")
-        self.matcher = Matcher(cfg.matcher_iou_thre, cfg.matcher_iou_thre, True)
 
     @staticmethod
     def GIoULoss(pred, target, anchor, weight=None):
@@ -59,147 +56,156 @@ class PAALossComputation:
             assert losses.numel() != 0
             return losses
 
-    def prepare_iou_based_targets(self, targets, anchors):
-        cls_labels, reg_targets, matched_idx_all = [], [], []
+    def prepare_initial_targets(self, targets, anchors):
+        category_all, offset_all, index_all = [], [], []
 
-        for i in range(len(targets)):
-            targets_per_im = targets[i]
-            assert targets_per_im.mode == "xyxy"
-            anchors_per_im = cat_boxlist(anchors[i])
+        for targets_per_img, anchor in zip(targets, anchors):
+            assert targets_per_img.mode == "xyxy"
+            anchors_per_img = cat_boxlist(anchor)
 
-            iou_matrix = boxlist_iou(targets_per_im, anchors_per_im)
+            iou_matrix = boxlist_iou(targets_per_img, anchors_per_img)  # shape: (num_gt, num_anchor)
+            # shape: (num_anchor,), record the matched gt index for each dt, or -1 for background, or -2 for ignored.
+            matched_index = match(iou_matrix, self.cfg.match_iou_thre, self.cfg.match_iou_thre)
+            targets_per_img = targets_per_img.copy_with_fields(['labels'])
+            matched_targets = targets_per_img[matched_index.clamp(min=0)]  # TODO: figure out here, .clamp(min=0)?
 
-            matched_idxs = self.matcher(iou_matrix)
-            targets_per_im = targets_per_im.copy_with_fields(['labels'])
-            matched_targets = targets_per_im[matched_idxs.clamp(min=0)]
+            offset = encode(matched_targets.bbox, anchors_per_img.bbox)
 
             category = matched_targets.get_field("labels").to(dtype=torch.float32)
+            category[matched_index == -1] = 0  # Background (negative examples)
+            category[matched_index == -2] = -1  # ignore indices that are between thresholds
 
-            # Background (negative examples)
-            bg_indices = matched_idxs == -1
-            category[bg_indices] = 0
+            offset_all.append(offset)
+            category_all.append(category)
+            index_all.append(matched_index)
 
-            # discard indices that are between thresholds, "useless"
-            inds_to_discard = matched_idxs == -2
-            category[inds_to_discard] = -1
+        category_all = torch.cat(category_all, dim=0).int()
+        offset_all = torch.cat(offset_all, dim=0)
+        index_all = torch.cat(index_all, dim=0)
 
-            matched_idx_all.append(matched_idxs.view(1, -1))
+        return category_all, offset_all, index_all
 
-            offset = encode(matched_targets.bbox, anchors_per_im.bbox)
-            cls_labels.append(category)
-            reg_targets.append(offset)
+    def compute_paa(self, target_batch, anchor_batch, c_init_batch, score_batch, index_init_batch):
+        bs = len(target_batch)
+        c_init_batch = c_init_batch.reshape(bs, -1)
+        score_batch = score_batch.reshape(bs, -1)
+        index_init_batch = index_init_batch.reshape(bs, -1)
+        device = score_batch.device
 
-        return cls_labels, reg_targets, matched_idx_all
+        final_c_batch, final_offset_batch = [], []
+        for i in range(len(target_batch)):
+            target = target_batch[i]
+            assert target.mode == "xyxy", 'target mode incorrect'
 
-    def compute_paa(self, targets, anchors, labels_all, loss_all, matched_idx_all):
-        """
-        Args:
-            targets (batch_size): list of BoxLists for GT bboxes
-            anchors (batch_size, feature_lvls): anchor boxes per feature level
-            labels_all (batch_size x num_anchors): assigned labels
-            loss_all (batch_size x numa_nchors): calculated loss
-            matched_idx_all (batch_size x numa_nchors): best-matched GG bbox indexes
-        """
-        device = loss_all.device
-        cls_labels = []
-        reg_targets = []
-        for im_i in range(len(targets)):
-            targets_per_im = targets[im_i]
-            assert targets_per_im.mode == "xyxy"
-            bboxes_per_im = targets_per_im.bbox
-            labels_per_im = targets_per_im.get_field("labels")
-            anchors_per_im = cat_boxlist(anchors[im_i])
-            labels_all_per_im = labels_all[im_i]
-            loss_all_per_im = loss_all[im_i]
-            matched_idx_all_per_im = matched_idx_all[im_i]
-            assert labels_all_per_im.shape == matched_idx_all_per_im.shape
+            box_gt = target.bbox
+            c_gt = target.get_field("labels")
+            anchor = cat_boxlist(anchor_batch[i])
 
-            num_anchors_per_level = [len(anchors_per_level.bbox) for anchors_per_level in anchors[im_i]]
+            c_init = c_init_batch[i]
+            score = score_batch[i]
+            index_init = index_init_batch[i]
+            assert c_init.shape == index_init.shape
 
-            # select candidates based on IoUs between anchors and GTs
-            candidate_idxs = []
-            num_gt = bboxes_per_im.shape[0]
-            for gt in range(num_gt):
-                candidate_idxs_per_gt = []
-                star_idx = 0
-                for level, anchors_per_level in enumerate(anchors[im_i]):
-                    end_idx = star_idx + num_anchors_per_level[level]
-                    loss_per_level = loss_all_per_im[star_idx:end_idx]
-                    labels_per_level = labels_all_per_im[star_idx:end_idx]
-                    matched_idx_per_level = matched_idx_all_per_im[star_idx:end_idx]
-                    match_idx = ((matched_idx_per_level == gt) & (labels_per_level > 0)).nonzero()[:, 0]
+            num_anchor_per_fpn = [len(anchor_per_fpn.bbox) for anchor_per_fpn in anchor_batch[i]]
 
-                    if match_idx.numel() > 0:
-                        _, topk_idxs = loss_per_level[match_idx].topk(
-                            min(match_idx.numel(), self.cfg.topk), largest=False)
-                        topk_idxs_per_level_per_gt = match_idx[topk_idxs]
-                        candidate_idxs_per_gt.append(topk_idxs_per_level_per_gt + star_idx)
+            final_c = torch.zeros(anchor.bbox.shape[0], dtype=torch.long).to(device)
 
-                    star_idx = end_idx
+            final_box_gt = torch.zeros_like(anchor.bbox)
+            fg_mask = index_init >= 0
+            final_box_gt[fg_mask] = box_gt[index_init[fg_mask]]   # TODO: here add all fg box, why?
+            fg_index = fg_mask.nonzero().reshape(-1)
 
-                if candidate_idxs_per_gt:
-                    candidate_idxs.append(torch.cat(candidate_idxs_per_gt))
-                else:
-                    candidate_idxs.append(None)
+            for gt_i in range(box_gt.shape[0]):
+                candi_i_per_gt = []
+                start_i = 0
 
-            # fit 2-mode GMM per GT box
-            n_labels = anchors_per_im.bbox.shape[0]
-            cls_labels_per_im = torch.zeros(n_labels, dtype=torch.long).to(device)
-            matched_gts = torch.zeros_like(anchors_per_im.bbox)
-            fg_inds = matched_idx_all_per_im >= 0
-            matched_gts[fg_inds] = bboxes_per_im[matched_idx_all_per_im[fg_inds]]
+                for j in range(len(num_anchor_per_fpn)):
+                    end_i = start_i + num_anchor_per_fpn[j]
 
-            for gt in range(num_gt):
-                if candidate_idxs[gt] is not None:
-                    if candidate_idxs[gt].numel() > 1:
-                        candidate_loss = loss_all_per_im[candidate_idxs[gt]]
-                        candidate_loss, inds = candidate_loss.sort()
-                        candidate_loss = candidate_loss.view(-1, 1).cpu().numpy()
-                        min_loss, max_loss = candidate_loss.min(), candidate_loss.max()
-                        means_init = [[min_loss], [max_loss]]
-                        weights_init = [0.5, 0.5]
-                        precisions_init = [[[1.0]], [[1.0]]]
-                        gmm = skm.GaussianMixture(2,
-                                                  weights_init=weights_init,
-                                                  means_init=means_init,
-                                                  precisions_init=precisions_init)
-                        gmm.fit(candidate_loss)
-                        components = gmm.predict(candidate_loss)
-                        scores = gmm.score_samples(candidate_loss)
-                        components = torch.from_numpy(components).to(device)
-                        scores = torch.from_numpy(scores).to(device)
+                    score_per_fpn = score[start_i:end_i]
+                    c_init_per_fpn = c_init[start_i:end_i]
+                    index_init_per_fpn = index_init[start_i:end_i]
 
-                        fgs = components == 0
-                        bgs = components == 1
-                        if fgs.nonzero().numel() > 0:
-                            # Fig 3. (c)
-                            fg_max_score = scores[fgs].max().item()
-                            fg_max_idx = (fgs & (scores == fg_max_score)).nonzero().min()
-                            is_neg = inds[fgs | bgs]
-                            is_pos = inds[:fg_max_idx + 1]
+                    # get the matched anchor index for a certain gt in a certain fpn
+                    matched_i = ((index_init_per_fpn == gt_i) & (c_init_per_fpn > 0)).nonzero()[:, 0]
+                    aa = (index_init_per_fpn == gt_i).nonzero()[:, 0]
+                    assert (matched_i == aa).sum() == len(aa), 'unequal'  # TODO: if this is always right, simplify this
+
+                    matched_num = matched_i.numel()
+
+                    if matched_num > 0:
+                        _, topk_i = score_per_fpn[matched_i].topk(min(matched_num, self.cfg.topk), largest=False)
+                        topk_i_per_fpn = matched_i[topk_i]
+                        candi_i_per_gt.append(topk_i_per_fpn + start_i)
+
+                    start_i = end_i
+
+                if candi_i_per_gt:
+                    candi_i_per_gt = torch.cat(candi_i_per_gt)
+
+                    # only if there are more than 1 candidate, gmm would be done
+                    if candi_i_per_gt.numel() > 1:
+                        candi_score = score[candi_i_per_gt]
+                        candi_score, candi_index = candi_score.sort()
+                        candi_score = candi_score.reshape(-1, 1).cpu().numpy()
+
+                        gmm = skm.GaussianMixture(n_components=2,
+                                                  weights_init=[0.5, 0.5],
+                                                  means_init=[[candi_score.min()], [candi_score.max()]],
+                                                  precisions_init=[[[1.0]], [[1.0]]])
+                        gmm.fit(candi_score)
+
+                        gmm_component = gmm.predict(candi_score)
+                        gmm_score = gmm.score_samples(candi_score)
+
+                        gmm_component = torch.from_numpy(gmm_component).to(device)
+                        gmm_score = torch.from_numpy(gmm_score).to(device)
+
+                        fg = gmm_component == 0
+                        bg = gmm_component == 1
+
+                        if fg.nonzero().numel() > 0:
+                            _, fg_max_i = gmm_score[fg].max(dim=0)  # Fig 3. (c)
+                            is_neg = candi_index[fg | bg]
+                            is_pos = candi_index[:fg_max_i + 1]
+
+                            for aa in is_pos:  # TODO: if this is always right, simplify this
+                                assert aa in is_neg
                         else:
-                            # just treat all samples as positive for high recall.
-                            is_pos = inds
+                            is_pos = candi_index  # just treat all samples as positive for high recall.
                             is_neg = None
                     else:
                         is_pos = 0
                         is_neg = None
 
                     if is_neg is not None:
-                        neg_idx = candidate_idxs[gt][is_neg]
-                        cls_labels_per_im[neg_idx] = 0
+                        neg_i = candi_i_per_gt[is_neg]
+                        final_c[neg_i] = 0
 
-                    pos_idx = candidate_idxs[gt][is_pos]
-                    cls_labels_per_im[pos_idx] = labels_per_im[gt].view(-1, 1)
-                    matched_gts[pos_idx] = bboxes_per_im[gt].view(-1, 4)
+                    pos_i = candi_i_per_gt[is_pos]
+                    final_c[pos_i] = c_gt[gt_i].reshape(-1, 1)
+                    final_box_gt[pos_i] = box_gt[gt_i].reshape(-1, 4)
 
-            reg_targets_per_im = encode(matched_gts, anchors_per_im.bbox)
-            cls_labels.append(cls_labels_per_im)
-            reg_targets.append(reg_targets_per_im)
+                    if pos_i.ndim == 1:  # TODO: if this is always right, then there comes with a problem?
+                        for aa in pos_i:
+                            assert aa in fg_index, '----------------------------'
+                            assert (final_box_gt[aa] == box_gt[gt_i].reshape(-1, 4)).all(), '@@@@@@@@@'
+                    else:
+                        assert pos_i in fg_index, '----------------------------'
+                        assert (final_box_gt[pos_i] == box_gt[gt_i].reshape(-1, 4)).all(), '@@@@@@@@@'
 
-        return cls_labels, reg_targets
+            # 'neg_i' and 'pos_i' derives from 'candi_i_per_gt' derives from 'matched_i' derives from 'index_init'
+            final_offset = encode(final_box_gt, anchor.bbox)
+            final_c_batch.append(final_c)
+            final_offset_batch.append(final_offset)
 
-    def compute_ious(self, boxes1, boxes2):
+        final_c_batch = torch.cat(final_c_batch, dim=0).int()
+        final_offset_batch = torch.cat(final_offset_batch, dim=0)
+
+        return final_c_batch, final_offset_batch
+
+    @staticmethod
+    def compute_ious(boxes1, boxes2):
         area1 = (boxes1[:, 2] - boxes1[:, 0] + 1) * (boxes1[:, 3] - boxes1[:, 1] + 1)
         area2 = (boxes2[:, 2] - boxes2[:, 0] + 1) * (boxes2[:, 3] - boxes2[:, 1] + 1)
         lt = torch.max(boxes1[:, :2], boxes2[:, :2])
@@ -208,76 +214,54 @@ class PAALossComputation:
         inter = wh[:, 0] * wh[:, 1]
         return inter / (area1 + area2 - inter)
 
-    def __call__(self, c_pred, box_pred, iou_pred, targets, anchors, locations):
-        iou_based_c, iou_based_offset, matched_idx_all = self.prepare_iou_based_targets(targets, anchors)
-        matched_idx_all = torch.cat(matched_idx_all, dim=0)
-        bs = len(iou_based_c)
-        iou_based_c = torch.cat(iou_based_c, dim=0).int()
-        iou_based_offset = torch.cat(iou_based_offset, dim=0)
+    def __call__(self, c_pred, box_pred, iou_pred, targets, anchors):
+        # TODO: figure out whether anchors for per image are the same
+        # c_init_batch: (bs * num_anchor,), 0 for background, -1 for ignored
+        # offset_init_batch: (bs * num_anchor, 4)
+        # index_init_batch: (bs * num_anchor,), -1 for bakground, -2 for ignored
+        c_init_batch, offset_init_batch, index_init_batch = self.prepare_initial_targets(targets, anchors)
+        pos_i_init = torch.nonzero(c_init_batch > 0).squeeze(1)
 
-        box_cls_flatten, box_regression_flatten = concat_box_prediction_layers(c_pred, box_pred)
-        anchors_flatten = torch.cat([cat_boxlist(anchors_per_image).bbox for anchors_per_image in anchors], dim=0)
+        c_pred_f, box_pred_f, iou_pred_f, anchor_f = concat_fpn_pred(c_pred, box_pred, iou_pred, anchors)
 
-        iou_pred_flatten = [ip.permute(0, 2, 3, 1).reshape(bs, -1, 1) for ip in iou_pred]
-        iou_pred_flatten = torch.cat(iou_pred_flatten, dim=1).reshape(-1)
+        if pos_i_init.numel() > 0:
+            n_loss_per_box = 1  # TODO: what's the usage
 
-        pos_i = torch.nonzero(iou_based_c > 0).squeeze(1)
+            # compute anchor scores (losses) for all anchors, no gradient is needed.
+            c_loss = focal_loss_cuda(c_pred_f.detach(), c_init_batch, self.cfg.loss_gamma, self.cfg.loss_alpha)
+            box_loss = self.GIoULoss(box_pred_f.detach(), offset_init_batch, anchor_f, weight=None)
+            box_loss = box_loss[c_init_batch > 0].reshape(-1)
 
-        if pos_i.numel() > 0:
-            n_loss_per_box = 1
-
-            # compute anchor scores (losses) for all anchors
-            logits = box_cls_flatten.detach()
-            focal_loss = focal_loss_cuda if logits.is_cuda else focal_loss_cpu
-            c_loss = focal_loss(logits, iou_based_c, self.cfg.loss_gamma, self.cfg.loss_alpha)
-
-            box_loss = self.GIoULoss(box_regression_flatten.detach(), iou_based_offset, anchors_flatten, weight=None)
-            box_loss = box_loss[iou_based_c > 0].view(-1)
-
-            iou_based_reg_loss_full = torch.full((c_loss.shape[0],),
-                                                 fill_value=100000000,
-                                                 device=c_loss.device)
-            iou_based_reg_loss_full[pos_i] = box_loss.view(-1, n_loss_per_box).mean(1)
-            combined_loss = c_loss.sum(dim=1) + iou_based_reg_loss_full
-            assert not torch.isnan(combined_loss).any()
+            box_loss_full = torch.full((c_loss.shape[0],), fill_value=1000000, device=c_loss.device)
+            box_loss_full[pos_i_init] = box_loss.reshape(-1, n_loss_per_box).mean(dim=1)
+            score_batch = c_loss.sum(dim=1) + box_loss_full
+            assert not torch.isnan(score_batch).any()  # all the elements should not be nan
 
             # compute labels and targets using PAA
-            labels, reg_targets = self.compute_paa(targets, anchors,
-                                                   iou_based_c.view(bs, -1), combined_loss.view(bs, -1),
-                                                   matched_idx_all)
+            final_c_batch, final_offset_batch = self.compute_paa(targets, anchors, c_init_batch, score_batch, index_init_batch)
 
             num_gpus = 1
-            labels_flatten = torch.cat(labels, dim=0).int()
-            reg_targets_flatten = torch.cat(reg_targets, dim=0)
-            pos_i = torch.nonzero(labels_flatten > 0).squeeze(1)
-            total_num_pos = pos_i.new_tensor([pos_i.numel()]).item()
-            num_pos_per_gpu = max(total_num_pos / float(num_gpus), 1.0)
+            pos_i_init = torch.nonzero(final_c_batch > 0).squeeze(1)
+            num_pos_per_gpu = max(pos_i_init.numel() / float(num_gpus), 1.0)
 
-            box_regression_flatten = box_regression_flatten[pos_i]
-            reg_targets_flatten = reg_targets_flatten[pos_i]
-            anchors_flatten = anchors_flatten[pos_i]
+            box_pred_f = box_pred_f[pos_i_init]
+            final_offset_batch = final_offset_batch[pos_i_init]
+            anchor_f = anchor_f[pos_i_init]
+            iou_pred_f = iou_pred_f[pos_i_init]
 
-            # compute iou prediction targets
-            iou_pred_flatten = iou_pred_flatten[pos_i]
-            gt_boxes = decode(reg_targets_flatten, anchors_flatten)
-            boxes = decode(box_regression_flatten, anchors_flatten).detach()
-            ious = self.compute_ious(gt_boxes, boxes)
+            gt_boxes = decode(final_offset_batch, anchor_f)
+            box_pred_decoded = decode(box_pred_f, anchor_f).detach()
+            iou_gt = self.compute_ious(gt_boxes, box_pred_decoded)
 
-            # compute iou losses
-            iou_pred_loss = self.iou_bce_loss(iou_pred_flatten, ious) / num_pos_per_gpu * self.cfg.iou_loss_weight
-            sum_ious_targets_per_gpu = ious.sum().item() / float(num_gpus)
-
-            # set regression loss weights to ious between predicted boxes and GTs
-            reg_loss = self.GIoULoss(box_regression_flatten, reg_targets_flatten, anchors_flatten, weight=ious)
-            reg_loss = reg_loss[labels_flatten[pos_i] > 0].view(-1)
-
-            logits = box_cls_flatten
-            focal_loss = focal_loss_cuda if logits.is_cuda else focal_loss_cpu
-            cls_loss = focal_loss(logits, labels_flatten.int(), self.cfg.loss_gamma, self.cfg.loss_alpha)
+            cls_loss = focal_loss_cuda(c_pred_f, final_c_batch.int(), self.cfg.loss_gamma, self.cfg.loss_alpha)
+            box_loss = self.GIoULoss(box_pred_f, final_offset_batch, anchor_f, weight=iou_gt)
+            box_loss = box_loss[final_c_batch[pos_i_init] > 0].reshape(-1)
+            iou_pred_loss = self.iou_bce_loss(iou_pred_f, iou_gt) / num_pos_per_gpu * self.cfg.iou_loss_weight
+            sum_ious_targets_per_gpu = iou_gt.sum().item() / float(num_gpus)
         else:
-            reg_loss = box_regression_flatten.sum()
+            box_loss = box_f.sum()
 
         category_loss = cls_loss.sum() / num_pos_per_gpu
-        box_loss = reg_loss.sum() / sum_ious_targets_per_gpu * self.cfg.reg_loss_weight
+        box_loss = box_loss.sum() / sum_ious_targets_per_gpu * self.cfg.reg_loss_weight
 
         return [category_loss, box_loss, iou_pred_loss]

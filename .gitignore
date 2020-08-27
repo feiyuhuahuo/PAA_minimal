@@ -4,4 +4,6 @@ paa.egg-info/
 weights/
 _C*
 __pycache__/
+results/
+.idea/
 

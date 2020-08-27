@@ -24,11 +24,11 @@ def boxlist_ml_nms(boxlist, nms_thresh, max_proposals=-1, score_field="scores", 
     scores = boxlist.get_field(score_field)
     labels = boxlist.get_field(label_field)
     keep = _C.ml_nms(boxes, scores, labels.float(), nms_thresh)
+
     if max_proposals > 0:
         keep = keep[: max_proposals]
-    boxlist = boxlist[keep]
 
-    return boxlist.convert(mode)
+    return boxlist[keep].convert(mode)
 
 
 def remove_small_boxes(boxlist, min_size):

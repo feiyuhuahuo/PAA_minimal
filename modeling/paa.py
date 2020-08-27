@@ -7,7 +7,7 @@ from modeling.utils import PAAPostProcessor
 import pdb
 import math
 import torch
-from modeling.loss import PAALossComputation
+from modeling.loss import PAALoss
 from modeling.anchor_generator import AnchorGenerator
 
 
@@ -78,12 +78,14 @@ class PAAHead(torch.nn.Module):
         return logits, bbox_reg, iou_pred
 
 
-class PAAModule(torch.nn.Module):
+class PAA(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        self.cfg = cfg
+        body = resnet.ResNet(cfg)
+        fpn = fpn_module.FPN(in_channels_list=[0, 512, 1024, 2048], out_channels=256)
+        self.backbone = nn.Sequential(OrderedDict([("body", body), ("fpn", fpn)]))
         self.head = PAAHead(cfg)
-        self.loss_evaluator = PAALossComputation(cfg)
+        self.paa_loss = PAALoss(cfg)
         self.post_process = PAAPostProcessor(pre_nms_thresh=cfg.test_score_thre,
                                              pre_nms_top_n=cfg.pre_nms_topk,
                                              nms_thresh=cfg.nms_thre,
@@ -93,44 +95,6 @@ class PAAModule(torch.nn.Module):
                                              score_voting=cfg.test_score_voting)
 
         self.anchor_generator = AnchorGenerator(cfg.anchor_sizes, cfg.aspect_ratios, cfg.anchor_strides)
-        self.fpn_strides = cfg.anchor_strides
-
-    def forward(self, images, features, targets=None):
-        c_pred, box_pred, iou_pred = self.head(features)
-
-        anchors = self.anchor_generator(images, features)
-
-        locations = []
-        for level, feature in enumerate(features):
-            h, w = feature.size()[-2:]
-            locations_per_level = self.compute_locations_per_level(h, w, self.fpn_strides[level], feature.device)
-            locations.append(locations_per_level)
-
-        if self.training:
-            losses = self.loss_evaluator(c_pred, box_pred, iou_pred, targets, anchors, locations)
-            losses_dict = {"loss_cls": losses[0], "loss_reg": losses[1], 'loss_iou_pred': losses[2]}
-            return None, losses_dict
-        else:
-            boxes = self.post_process(c_pred, box_pred, iou_pred, anchors)
-            return boxes, None
-
-    def compute_locations_per_level(self, h, w, stride, device):
-        shifts_x = torch.arange(0, w * stride, step=stride, dtype=torch.float32, device=device)
-        shifts_y = torch.arange(0, h * stride, step=stride, dtype=torch.float32, device=device)
-        shift_y, shift_x = torch.meshgrid(shifts_y, shifts_x)
-        shift_x = shift_x.reshape(-1)
-        shift_y = shift_y.reshape(-1)
-        locations = torch.stack((shift_x, shift_y), dim=1) + stride // 2
-        return locations
-
-
-class PAA(nn.Module):
-    def __init__(self, cfg):
-        super().__init__()
-        body = resnet.ResNet(cfg)
-        fpn = fpn_module.FPN(in_channels_list=[0, 512, 1024, 2048], out_channels=256)
-        self.backbone = nn.Sequential(OrderedDict([("body", body), ("fpn", fpn)]))
-        self.rpn = PAAModule(cfg)
 
     def forward(self, images, targets=None):
         if self.training and targets is None:
@@ -138,10 +102,10 @@ class PAA(nn.Module):
 
         images = to_image_list(images)
         features = self.backbone(images.tensors)
-
-        proposals, proposal_losses = self.rpn(images, features, targets)
+        c_pred, box_pred, iou_pred = self.head(features)
+        anchors = self.anchor_generator(images, features)
 
         if self.training:
-            return proposal_losses
-
-        return proposals
+            return self.paa_loss(c_pred, box_pred, iou_pred, targets, anchors)
+        else:
+            return self.post_process(c_pred, box_pred, iou_pred, anchors)

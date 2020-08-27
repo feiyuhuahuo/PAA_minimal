@@ -34,7 +34,8 @@ def do_coco_evaluation(dataset, predictions, cfg):
                               "bbox": box,
                               "score": scores[k]} for k, box in enumerate(boxes)])
 
-    with open(f'results/{cfg.backbone}_bbox.json', "w") as f:
+    file_path = f'results/{cfg.backbone}_bbox.json'
+    with open(file_path, "w") as f:
         json.dump(coco_results, f)
 
     coco_dt = dataset.coco.loadRes(file_path)
