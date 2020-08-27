@@ -145,12 +145,11 @@ def make_data_loader(cfg, training=True, start_iter=0):
     dataset = COCODataset(cfg, training)
 
     if training:
-        batch_size = 2
-        # sampler = data.sampler.RandomSampler(dataset)
-        sampler = data.sampler.SequentialSampler(dataset)
+        batch_size = cfg.bs
+        sampler = data.sampler.RandomSampler(dataset)
         num_iters = cfg.max_iter
     else:
-        batch_size = 2
+        batch_size = 1
         sampler = data.sampler.SequentialSampler(dataset)
         num_iters = None
 
@@ -168,4 +167,4 @@ def make_data_loader(cfg, training=True, start_iter=0):
     if num_iters is not None:
         batch_sampler = IterationBasedBatchSampler(batch_sampler, num_iters, start_iter)
 
-    return data.DataLoader(dataset, num_workers=0, batch_sampler=batch_sampler, collate_fn=BatchCollator())
+    return data.DataLoader(dataset, num_workers=6, batch_sampler=batch_sampler, collate_fn=BatchCollator())

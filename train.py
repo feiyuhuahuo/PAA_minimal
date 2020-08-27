@@ -15,6 +15,7 @@ import pdb
 
 parser = argparse.ArgumentParser(description="PyTorch Object Detection Training")
 parser.add_argument("--model", default='paa_res5000.pth')
+parser.add_argument("--bs", type=int, default=4)
 args = parser.parse_args()
 cfg = update_config(args)
 
@@ -76,4 +77,5 @@ for i, (images, targets, _) in enumerate(data_loader, ckpt_iter):
 
     if i > ckpt_iter and i % cfg.val_iter == 0 or i == max_iter:
         checkpointer.save(cur_iter=i)
-        inference(model, cfg, training=True)
+        inference(model, cfg)
+        model.train()

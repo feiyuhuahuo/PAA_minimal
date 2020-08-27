@@ -11,13 +11,13 @@ from tqdm import tqdm
 from utils.coco_eval import do_coco_evaluation
 
 parser = argparse.ArgumentParser(description="PyTorch Object Detection Evaluation")
-parser.add_argument("--model", default='weights/paa_res50.pth')
+parser.add_argument("--model", type=str, default='weights/paa_res50.pth')
 
 
-def inference(model, cfg, training=False):
+def inference(model, cfg):
     model.eval()
     predictions = {}
-    val_loader = make_data_loader(cfg, training=training)
+    val_loader = make_data_loader(cfg, training=False)
 
     with torch.no_grad():
         for _, batch in enumerate(tqdm(val_loader)):
@@ -40,4 +40,4 @@ if __name__ == '__main__':
     cfg = update_config(args)
     model = PAA(cfg).cuda()
     model.load_state_dict(torch.load(cfg.model)['model'], strict=True)
-    inference(model, cfg, training=False)
+    inference(model, cfg)
