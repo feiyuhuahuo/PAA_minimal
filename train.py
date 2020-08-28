@@ -9,13 +9,13 @@ from data.data_loader import make_data_loader
 from modeling.paa import PAA
 from val import inference
 from utils.checkpoint import Checkpointer
-from utils.train_utils import WarmupMultiStepLR, make_optimizer
+from utils.optim_scheduler import WarmupMultiStepLR, make_optimizer
 from utils import timer
 import pdb
 
 parser = argparse.ArgumentParser(description="PyTorch Object Detection Training")
-parser.add_argument("--model", default='paa_res5000.pth')
-parser.add_argument("--bs", type=int, default=4)
+parser.add_argument("--model", default='weights/R-50.pkl')
+parser.add_argument("--train_bs", type=int, default=4)
 args = parser.parse_args()
 cfg = update_config(args)
 
@@ -30,7 +30,7 @@ torch.manual_seed(10)
 torch.cuda.manual_seed_all(10)
 
 optimizer = make_optimizer(cfg, model)
-scheduler = WarmupMultiStepLR(optimizer, cfg.steps, warmup_factor=cfg.warmup_factor, warmup_iters=cfg.warmup_iters)
+scheduler = WarmupMultiStepLR(optimizer, cfg)
 checkpointer = Checkpointer(cfg, model, optimizer, scheduler)
 ckpt_iter = checkpointer.load()
 

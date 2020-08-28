@@ -3,7 +3,7 @@ import pdb
 import math
 import torch.nn as nn
 from utils.bounding_box import BoxList
-from utils.boxlist_ops import cat_boxlist, boxlist_ml_nms, remove_small_boxes, boxlist_iou
+from utils.boxlist_ops import cat_boxlist, boxlist_ml_nms, boxlist_iou
 
 
 def get_group_gn(dim, dim_per_gp, num_groups):
@@ -130,104 +130,93 @@ def decode(preds, anchors):
     return pred_boxes
 
 
-class PAAPostProcessor(torch.nn.Module):
-    def __init__(self, pre_nms_thresh, pre_nms_top_n, nms_thresh, fpn_post_nms_top_n,
-                 min_size, num_classes, score_voting=True):
+class PAAPostProcessor:
+    def __init__(self, cfg):
         super().__init__()
-        self.pre_nms_thresh = pre_nms_thresh
-        self.pre_nms_top_n = pre_nms_top_n
-        self.nms_thresh = nms_thresh
-        self.fpn_post_nms_top_n = fpn_post_nms_top_n
-        self.min_size = min_size
-        self.num_classes = num_classes
-        self.score_voting = score_voting
+        self.cfg = cfg
 
-    def forward_for_single_feature_map(self, box_cls, box_regression, iou_pred, anchors):
-        N, _, H, W = box_cls.shape
-        A = box_regression.size(1) // 4
-        C = box_cls.size(1) // A
+    @staticmethod
+    def remove_small_boxes(boxlist, min_size):
+        # Only keep boxes with both sides >= min_size
+        # TODO maybe add an API for querying the ws / hs
+        xywh_boxes = boxlist.convert("xywh").bbox
+        _, _, ws, hs = xywh_boxes.unbind(dim=1)
+        keep = ((ws >= min_size) & (hs >= min_size)).nonzero().squeeze(1)
+        return boxlist[keep]
 
-        # put in the same format as anchors
-        box_cls = permute_and_flatten(box_cls, N, A, C, H, W)
-        box_cls = box_cls.sigmoid()
+    def __call__(self, c_batch, box_batch, iou_batch, anchor_batch):
+        total_boxes = []
+        anchor_batch = list(zip(*anchor_batch))
 
-        box_regression = permute_and_flatten(box_regression, N, A, 4, H, W)
-        box_regression = box_regression.reshape(N, -1, 4)
+        for c_fpn, box_fpn, iou_fpn, anchor_fpn in zip(c_batch, box_batch, iou_batch, anchor_batch):
+            N, _, H, W = c_fpn.shape
+            A = box_fpn.size(1) // 4  # 'A' means num_anchors per location
+            C = c_fpn.size(1) // A
 
-        candidate_inds = box_cls > self.pre_nms_thresh
-        pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
-        pre_nms_top_n = pre_nms_top_n.clamp(max=self.pre_nms_top_n)
+            c_fpn = permute_and_flatten(c_fpn, N, A, C, H, W)  # shape: (n, num_anchor, 80)
+            c_fpn = c_fpn.sigmoid()
 
-        # multiply the classification scores with IoU scores
-        if iou_pred is not None:
-            iou_pred = permute_and_flatten(iou_pred, N, A, 1, H, W)
-            iou_pred = iou_pred.reshape(N, -1).sigmoid()
-            box_cls = (box_cls * iou_pred[:, :, None]).sqrt()
+            box_fpn = permute_and_flatten(box_fpn, N, A, 4, H, W)  # shape: (n, num_anchor, 4)
+            box_fpn = box_fpn.reshape(N, -1, 4)
 
+            iou_fpn = permute_and_flatten(iou_fpn, N, A, 1, H, W)
+            iou_fpn = iou_fpn.reshape(N, -1).sigmoid()
+
+            # multiply classification and IoU to get the score
+            score_fpn = (c_fpn * iou_fpn[:, :, None]).sqrt()
+
+            # use class score to do the pre-threshold
+            candi_i_fpn = c_fpn > self.cfg.nms_score_thre  # TODO: if use score_fpn to do score threshold?
+            nms_topk_fpn = candi_i_fpn.reshape(N, -1).sum(dim=1)
+            nms_topk_fpn = nms_topk_fpn.clamp(max=self.cfg.nms_topk)
+
+            results = []
+            for score, box, nms_topk, candi_i, anchor in zip(score_fpn, box_fpn, nms_topk_fpn, candi_i_fpn, anchor_fpn):
+                score = score[candi_i]  # TODO: too much thre is not elegant, too handcrafted
+                score, topk_i = score.topk(nms_topk, sorted=False)  # use score to get the topk
+
+                candi_i = candi_i.nonzero()[topk_i, :]
+
+                box_selected = box[candi_i[:, 0], :].reshape(-1, 4)
+                anchor_selected = anchor.bbox[candi_i[:, 0], :].reshape(-1, 4)
+
+                box_decoded = decode(box_selected, anchor_selected)
+                boxlist = BoxList(box_decoded, anchor.size, mode="xyxy")
+                boxlist.add_field("labels", candi_i[:, 1] + 1)
+                boxlist.add_field("scores", score)
+                boxlist = boxlist.clip_to_image(remove_empty=False)
+                boxlist = self.remove_small_boxes(boxlist, min_size=0)
+                results.append(boxlist)
+
+            total_boxes.append(results)
+
+        box_list = list(zip(*total_boxes))  # bind together the fpn box_lists which belong to the same batch
+        box_list = [cat_boxlist(boxlist) for boxlist in box_list]
+
+        return self.select_over_all_levels(box_list)
+
+    def select_over_all_levels(self, box_list):
         results = []
-        for per_box_cls_, per_box_regression, per_pre_nms_top_n, per_candidate_inds, per_anchors \
-                in zip(box_cls, box_regression, pre_nms_top_n, candidate_inds, anchors):
-            per_box_cls = per_box_cls_[per_candidate_inds]
+        for i in range(len(box_list)):
+            result = boxlist_ml_nms(box_list[i], self.cfg.nms_iou_thre)  # multi-class nms
+            num_detections = len(result)
 
-            per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n, sorted=False)
-
-            per_candidate_nonzeros = per_candidate_inds.nonzero()[top_k_indices, :]
-
-            per_box_loc = per_candidate_nonzeros[:, 0]
-            per_class = per_candidate_nonzeros[:, 1] + 1
-
-            detections = decode(per_box_regression[per_box_loc, :].view(-1, 4),
-                                per_anchors.bbox[per_box_loc, :].view(-1, 4))
-            boxlist = BoxList(detections, per_anchors.size, mode="xyxy")
-            boxlist.add_field("labels", per_class)
-            boxlist.add_field("scores", per_box_cls)
-            boxlist = boxlist.clip_to_image(remove_empty=False)
-            boxlist = remove_small_boxes(boxlist, self.min_size)
-            results.append(boxlist)
-
-        return results
-
-    def forward(self, box_cls, box_regression, iou_pred, anchors):
-        sampled_boxes = []
-        anchors = list(zip(*anchors))
-        if iou_pred is None:
-            iou_pred = [None] * len(box_cls)
-        for _, (o, b, i, a) in enumerate(zip(box_cls, box_regression, iou_pred, anchors)):
-            sampled_boxes.append(self.forward_for_single_feature_map(o, b, i, a))
-
-        boxlists = list(zip(*sampled_boxes))
-        boxlists = [cat_boxlist(boxlist) for boxlist in boxlists]
-        boxlists = self.select_over_all_levels(boxlists)
-
-        return boxlists
-
-    # TODO very similar to filter_results from PostProcessor
-    # but filter_results is per image
-    # TODO Yang: solve this issue in the future. No good solution
-    # right now.
-    def select_over_all_levels(self, boxlists):
-        num_images = len(boxlists)
-        results = []
-        for i in range(num_images):
-            # multiclass nms
-            result = boxlist_ml_nms(boxlists[i], self.nms_thresh)
-            number_of_detections = len(result)
-
-            # Limit to max_per_image detections **over all classes**
-            if number_of_detections > self.fpn_post_nms_top_n > 0:
+            # Limit to max_per_image detections    **over all classes**
+            if num_detections > self.cfg.max_detections > 0:
                 cls_scores = result.get_field("scores")
-                image_thresh, _ = torch.kthvalue(cls_scores.cpu(), number_of_detections - self.fpn_post_nms_top_n + 1)
-                keep = cls_scores >= image_thresh.item()
+                image_thre, _ = torch.kthvalue(cls_scores.cpu(), num_detections - self.cfg.max_detections + 1)
+                keep = cls_scores >= image_thre.item()
                 keep = torch.nonzero(keep).squeeze(1)
                 result = result[keep]
-            if self.score_voting:
-                boxes_al = boxlists[i].bbox
-                boxlist = boxlists[i]
-                labels = boxlists[i].get_field("labels")
-                scores = boxlists[i].get_field("scores")
+
+            if self.cfg.test_score_voting:
+                boxes_al = box_list[i].bbox
+                boxlist = box_list[i]
+                labels = box_list[i].get_field("labels")
+                scores = box_list[i].get_field("scores")
                 sigma = 0.025
                 result_labels = result.get_field("labels")
-                for j in range(1, self.num_classes):
+                for j in range(1, self.cfg.num_classes):
                     inds = (labels == j).nonzero().view(-1)
                     scores_j = scores[inds]
                     boxes_j = boxes_al[inds, :].view(-1, 4)
@@ -235,6 +224,7 @@ class PAAPostProcessor(torch.nn.Module):
                     result_inds = (result_labels == j).nonzero().view(-1)
                     boxlist_for_class_nmsed = result[result_inds]
                     ious = boxlist_iou(boxlist_for_class_nmsed, boxlist_for_class)
+
                     voted_boxes = []
                     for bi in range(len(boxlist_for_class_nmsed)):
                         cur_ious = ious[bi]
@@ -245,6 +235,7 @@ class PAAPostProcessor(torch.nn.Module):
                         pis = (torch.exp(-(1 - pos_ious) ** 2 / sigma) * pos_scores).unsqueeze(1)
                         voted_box = torch.sum(pos_boxes * pis, dim=0) / torch.sum(pis, dim=0)
                         voted_boxes.append(voted_box.unsqueeze(0))
+
                     if voted_boxes:
                         voted_boxes = torch.cat(voted_boxes, dim=0)
                         boxlist_for_class_nmsed_ = BoxList(voted_boxes,
@@ -253,7 +244,9 @@ class PAAPostProcessor(torch.nn.Module):
                         boxlist_for_class_nmsed_.add_field("scores",
                                                            boxlist_for_class_nmsed.get_field('scores'))
                         result.bbox[result_inds] = boxlist_for_class_nmsed_.bbox
+
             results.append(result)
+
         return results
 
 

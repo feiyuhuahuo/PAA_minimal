@@ -1,6 +1,6 @@
 import torch
 from utils.bounding_box import BoxList
-import _C
+from build_stuff import _C
 
 
 def boxlist_ml_nms(boxlist, nms_thresh, max_proposals=-1, score_field="scores", label_field="labels"):
@@ -11,8 +11,7 @@ def boxlist_ml_nms(boxlist, nms_thresh, max_proposals=-1, score_field="scores", 
     Arguments:
         boxlist(BoxList)
         nms_thresh (float)
-        max_proposals (int): if > 0, then only the top max_proposals are kept
-            after non-maximum suppression
+        max_proposals (int): if > 0, then only the top max_proposals are kept after non-maximum suppression
         score_field (str)
     """
     if nms_thresh <= 0:
@@ -29,21 +28,6 @@ def boxlist_ml_nms(boxlist, nms_thresh, max_proposals=-1, score_field="scores", 
         keep = keep[: max_proposals]
 
     return boxlist[keep].convert(mode)
-
-
-def remove_small_boxes(boxlist, min_size):
-    """
-    Only keep boxes with both sides >= min_size
-
-    Arguments:
-        boxlist (Boxlist)
-        min_size (int)
-    """
-    # TODO maybe add an API for querying the ws / hs
-    xywh_boxes = boxlist.convert("xywh").bbox
-    _, _, ws, hs = xywh_boxes.unbind(dim=1)
-    keep = ((ws >= min_size) & (hs >= min_size)).nonzero().squeeze(1)
-    return boxlist[keep]
 
 
 def boxlist_iou(boxlist1, boxlist2):

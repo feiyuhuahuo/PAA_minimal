@@ -86,14 +86,7 @@ class PAA(nn.Module):
         self.backbone = nn.Sequential(OrderedDict([("body", body), ("fpn", fpn)]))
         self.head = PAAHead(cfg)
         self.paa_loss = PAALoss(cfg)
-        self.post_process = PAAPostProcessor(pre_nms_thresh=cfg.test_score_thre,
-                                             pre_nms_top_n=cfg.pre_nms_topk,
-                                             nms_thresh=cfg.nms_thre,
-                                             fpn_post_nms_top_n=cfg.max_detections,
-                                             min_size=0,
-                                             num_classes=cfg.num_classes,
-                                             score_voting=cfg.test_score_voting)
-
+        self.post_process = PAAPostProcessor(cfg)
         self.anchor_generator = AnchorGenerator(cfg.anchor_sizes, cfg.aspect_ratios, cfg.anchor_strides)
 
     def forward(self, images, targets=None):

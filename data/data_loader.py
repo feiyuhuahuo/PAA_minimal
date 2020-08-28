@@ -143,13 +143,12 @@ class BatchCollator:
 
 def make_data_loader(cfg, training=True, start_iter=0):
     dataset = COCODataset(cfg, training)
-
     if training:
-        batch_size = cfg.bs
+        batch_size = cfg.train_bs
         sampler = data.sampler.RandomSampler(dataset)
         num_iters = cfg.max_iter
     else:
-        batch_size = 1
+        batch_size = cfg.test_bs
         sampler = data.sampler.SequentialSampler(dataset)
         num_iters = None
 

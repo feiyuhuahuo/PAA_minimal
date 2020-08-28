@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.autograd import Function
 from torch.autograd.function import once_differentiable
-import _C
+from build_stuff import _C
 
 # TODO: Use JIT to replace CUDA implementation in the future.
 class _SigmoidFocalLoss(Function):

@@ -12,6 +12,7 @@ from utils.coco_eval import do_coco_evaluation
 
 parser = argparse.ArgumentParser(description="PyTorch Object Detection Evaluation")
 parser.add_argument("--model", type=str, default='weights/paa_res50.pth')
+parser.add_argument("--test_bs", type=int, default=1)
 
 
 def inference(model, cfg):

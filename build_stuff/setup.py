@@ -39,12 +39,11 @@ def get_extensions():
     return ext_modules
 
 
-setup(name="paa",
-      version="0.1",
-      author="Kang Kim",
-      url="https://github.com/kkhoot/PAA",
-      description="object detector in pytorch",
-      packages=find_packages(exclude=("configs", "tests",)),
+setup(name="paa_minimal",
+      version="1.0",
+      author="feiyuhuahuo",
+      url="https://github.com/feiyuhuahuo/paa_minimal",
+      packages=find_packages(),
       ext_modules=get_extensions(),
       cmdclass={"build_ext": torch.utils.cpp_extension.BuildExtension},
       include_package_data=True)

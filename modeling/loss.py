@@ -112,7 +112,7 @@ class PAALoss:
 
             final_box_gt = torch.zeros_like(anchor.bbox)
             fg_mask = index_init >= 0
-            final_box_gt[fg_mask] = box_gt[index_init[fg_mask]]   # TODO: here add all fg box, why?
+            final_box_gt[fg_mask] = box_gt[index_init[fg_mask]]  # TODO: here add all fg box, why?
             fg_index = fg_mask.nonzero().reshape(-1)
 
             for gt_i in range(box_gt.shape[0]):
@@ -134,7 +134,7 @@ class PAALoss:
                     matched_num = matched_i.numel()
 
                     if matched_num > 0:
-                        _, topk_i = score_per_fpn[matched_i].topk(min(matched_num, self.cfg.topk), largest=False)
+                        _, topk_i = score_per_fpn[matched_i].topk(min(matched_num, self.cfg.fpn_topk), largest=False)
                         topk_i_per_fpn = matched_i[topk_i]
                         candi_i_per_gt.append(topk_i_per_fpn + start_i)
 
@@ -228,21 +228,21 @@ class PAALoss:
             n_loss_per_box = 1  # TODO: what's the usage
 
             # compute anchor scores (losses) for all anchors, no gradient is needed.
-            c_loss = focal_loss_cuda(c_pred_f.detach(), c_init_batch, self.cfg.loss_gamma, self.cfg.loss_alpha)
+            c_loss = focal_loss_cuda(c_pred_f.detach(), c_init_batch, self.cfg.fl_gamma, self.cfg.fl_alpha)
             box_loss = self.GIoULoss(box_pred_f.detach(), offset_init_batch, anchor_f, weight=None)
             box_loss = box_loss[c_init_batch > 0].reshape(-1)
 
-            box_loss_full = torch.full((c_loss.shape[0],), fill_value=1000000, device=c_loss.device)
+            box_loss_full = torch.full((c_loss.shape[0],), fill_value=100000, device=c_loss.device)
             box_loss_full[pos_i_init] = box_loss.reshape(-1, n_loss_per_box).mean(dim=1)
             score_batch = c_loss.sum(dim=1) + box_loss_full
             assert not torch.isnan(score_batch).any()  # all the elements should not be nan
 
             # compute labels and targets using PAA
-            final_c_batch, final_offset_batch = self.compute_paa(targets, anchors, c_init_batch, score_batch, index_init_batch)
+            final_c_batch, final_offset_batch = self.compute_paa(targets, anchors, c_init_batch,
+                                                                 score_batch, index_init_batch)
 
-            num_gpus = 1
             pos_i_init = torch.nonzero(final_c_batch > 0).squeeze(1)
-            num_pos_per_gpu = max(pos_i_init.numel() / float(num_gpus), 1.0)
+            num_pos = pos_i_init.numel()
 
             box_pred_f = box_pred_f[pos_i_init]
             final_offset_batch = final_offset_batch[pos_i_init]
@@ -253,15 +253,15 @@ class PAALoss:
             box_pred_decoded = decode(box_pred_f, anchor_f).detach()
             iou_gt = self.compute_ious(gt_boxes, box_pred_decoded)
 
-            cls_loss = focal_loss_cuda(c_pred_f, final_c_batch.int(), self.cfg.loss_gamma, self.cfg.loss_alpha)
+            cls_loss = focal_loss_cuda(c_pred_f, final_c_batch.int(), self.cfg.fl_gamma, self.cfg.fl_alpha)
             box_loss = self.GIoULoss(box_pred_f, final_offset_batch, anchor_f, weight=iou_gt)
             box_loss = box_loss[final_c_batch[pos_i_init] > 0].reshape(-1)
-            iou_pred_loss = self.iou_bce_loss(iou_pred_f, iou_gt) / num_pos_per_gpu * self.cfg.iou_loss_weight
-            sum_ious_targets_per_gpu = iou_gt.sum().item() / float(num_gpus)
+            iou_pred_loss = self.iou_bce_loss(iou_pred_f, iou_gt) / num_pos * self.cfg.iou_loss_w
+            sum_ious_targets_per_gpu = iou_gt.sum().item()
         else:
             box_loss = box_f.sum()
 
-        category_loss = cls_loss.sum() / num_pos_per_gpu
-        box_loss = box_loss.sum() / sum_ious_targets_per_gpu * self.cfg.reg_loss_weight
+        category_loss = cls_loss.sum() / num_pos
+        box_loss = box_loss.sum() / sum_ious_targets_per_gpu * self.cfg.box_loss_w
 
         return [category_loss, box_loss, iou_pred_loss]
