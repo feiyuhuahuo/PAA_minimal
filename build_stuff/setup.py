@@ -2,15 +2,12 @@
 import glob
 import os
 import torch
-from setuptools import find_packages
-from setuptools import setup
-from torch.utils.cpp_extension import CUDA_HOME
-from torch.utils.cpp_extension import CppExtension
-from torch.utils.cpp_extension import CUDAExtension
+from setuptools import find_packages, setup
+from torch.utils.cpp_extension import CUDA_HOME, CppExtension, CUDAExtension
 
 
 def get_extensions():
-    extensions_dir = "csrc/"
+    extensions_dir = os.getcwd().replace('build_stuff', 'csrc')
     main_file = glob.glob(os.path.join(extensions_dir, "*.cpp"))
     source_cpu = glob.glob(os.path.join(extensions_dir, "cpu", "*.cpp"))
     source_cuda = glob.glob(os.path.join(extensions_dir, "cuda", "*.cu"))

@@ -1,17 +1,18 @@
 import torch.nn as nn
-from utils.boxlist_ops import to_image_list
-from collections import OrderedDict
-from modeling import fpn as fpn_module
-from modeling import resnet
-from modeling.utils import PAAPostProcessor
 import pdb
 import math
 import torch
+from collections import OrderedDict
+from utils.boxlist_ops import to_image_list
+from modeling import fpn as fpn_module
+from modeling import resnet
+from modeling.utils import PAAPostProcessor
 from modeling.loss import PAALoss
 from modeling.anchor_generator import AnchorGenerator
+from modeling.layers import DFConv2d
 
 
-class Scale(nn.Module):
+class Scale(nn.Module):  # TODO: figure out the useage
     def __init__(self, init_value=1.0):
         super().__init__()
         self.scale = nn.Parameter(torch.FloatTensor([init_value]))

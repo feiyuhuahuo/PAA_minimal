@@ -4,7 +4,7 @@ import torch
 import datetime
 import time
 import numpy as np
-from config import update_config
+from config import get_config
 from data.data_loader import make_data_loader
 from modeling.paa import PAA
 from val import inference
@@ -14,10 +14,10 @@ from utils import timer
 import pdb
 
 parser = argparse.ArgumentParser(description="PyTorch Object Detection Training")
-parser.add_argument("--model", default='weights/R-50.pkl')
 parser.add_argument("--train_bs", type=int, default=4)
+parser.add_argument("--test_bs", type=int, default=1, help='-1 to disable')
 args = parser.parse_args()
-cfg = update_config(args)
+cfg = get_config(args)
 
 model = PAA(cfg).cuda()
 model.train()
@@ -30,7 +30,7 @@ torch.manual_seed(10)
 torch.cuda.manual_seed_all(10)
 
 optimizer = make_optimizer(cfg, model)
-scheduler = WarmupMultiStepLR(optimizer, cfg)
+scheduler = WarmupMultiStepLR(optimizer, cfg)  # TODO: figure out the lr principle
 checkpointer = Checkpointer(cfg, model, optimizer, scheduler)
 ckpt_iter = checkpointer.load()
 
@@ -63,7 +63,7 @@ for i, (images, targets, _) in enumerate(data_loader, ckpt_iter):
         timer.add_batch_time(batch_time)
     time_last = time_this
 
-    if i > ckpt_iter and i % 4 == 0:
+    if i > ckpt_iter and i % 10 == 0:
         cur_lr = optimizer.param_groups[0]['lr']
         time_name = ['batch', 'data', 'for+loss', 'backward', 'update']
         t_t, t_d, t_fl, t_b, t_u = timer.get_times(time_name)
@@ -75,7 +75,7 @@ for i, (images, targets, _) in enumerate(data_loader, ckpt_iter):
         print(f'step: {i} | lr: {cur_lr:.2e} | l_class: {l_c:.3f} | l_box: {l_b:.3f} | l_iou: {l_iou:.3f} | '
               f't_t: {t_t:.3f} | t_d: {t_d:.3f} | t_fl: {t_fl:.3f} | t_b: {t_b:.3f} | t_u: {t_u:.3f} | ETA: {eta}')
 
-    if i > ckpt_iter and i % cfg.val_iter == 0 or i == max_iter:
+    if i > ckpt_iter and i % cfg.val_interval == 0 or i == max_iter:
         checkpointer.save(cur_iter=i)
         inference(model, cfg)
         model.train()

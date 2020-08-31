@@ -61,19 +61,6 @@ void modulated_deform_conv_cuda_backward(
     int pad_w, int dilation_h, int dilation_w, int group, int deformable_group,
     const bool with_bias);
 
-void deform_psroi_pooling_cuda_forward(
-    at::Tensor input, at::Tensor bbox, at::Tensor trans, at::Tensor out,
-    at::Tensor top_count, const int no_trans, const float spatial_scale,
-    const int output_dim, const int group_size, const int pooled_size,
-    const int part_size, const int sample_per_part, const float trans_std);
-
-void deform_psroi_pooling_cuda_backward(
-    at::Tensor out_grad, at::Tensor input, at::Tensor bbox, at::Tensor trans,
-    at::Tensor top_count, at::Tensor input_grad, at::Tensor trans_grad,
-    const int no_trans, const float spatial_scale, const int output_dim,
-    const int group_size, const int pooled_size, const int part_size,
-    const int sample_per_part, const float trans_std);
-
 at::Tensor compute_flow_cuda(const at::Tensor& boxes,
                              const int height,
                              const int width);

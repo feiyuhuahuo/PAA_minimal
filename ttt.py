@@ -4,7 +4,7 @@ from collections import OrderedDict
 import torch
 import pdb
 
-aa = torch.load('weights/paa_res50.pth')
+aa = torch.load('paa_res1011.pth')
 bb = OrderedDict()
 cc = OrderedDict()
 
@@ -18,4 +18,4 @@ for k, v in aa.items():
 
         bb[k] = cc
 
-torch.save(bb, 'paa_res5000.pth')
+torch.save(bb, 'paa_res10111.pth')

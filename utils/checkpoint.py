@@ -173,8 +173,8 @@ class Checkpointer:
             self.scheduler.load_state_dict(ckpt['scheduler'])
             return ckpt['iteration']
         else:
-            print(f'Initialize training from {self.cfg.model}.')
-            ckpt = self.load_resnet_c2_format(self.cfg.model)
+            print(f'Initialize training from {self.cfg.weight}.')
+            ckpt = self.load_resnet_c2_format(self.cfg.weight)
             self.align_load(self.model, ckpt['model'])
             return 0
 

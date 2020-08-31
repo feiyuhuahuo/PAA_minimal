@@ -2,17 +2,15 @@ import argparse
 import os
 import pdb
 import torch
-from torch.utils.tensorboard import SummaryWriter
-from config import update_config
+from config import get_config
 from data.data_loader import make_data_loader
 from modeling.paa import PAA
-from utils.checkpoint import Checkpointer
 from tqdm import tqdm
 from utils.coco_eval import do_coco_evaluation
 
 parser = argparse.ArgumentParser(description="PyTorch Object Detection Evaluation")
-parser.add_argument("--model", type=str, default='weights/paa_res50.pth')
 parser.add_argument("--test_bs", type=int, default=1)
+parser.add_argument("--weight", type=str, default='weights/paa_res50.pth')
 
 
 def inference(model, cfg):
@@ -38,7 +36,7 @@ def inference(model, cfg):
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    cfg = update_config(args)
+    cfg = get_config(args, val_mode=True)
     model = PAA(cfg).cuda()
-    model.load_state_dict(torch.load(cfg.model)['model'], strict=True)
+    model.load_state_dict(torch.load(cfg.weight)['model'], strict=True)
     inference(model, cfg)

@@ -1,7 +1,7 @@
 from collections import namedtuple
 import torch.nn.functional as F
 from torch import nn
-from modeling.misc import Conv2d, DFConv2d, FrozenBatchNorm2d
+from modeling.layers import Conv2d, DFConv2d, FrozenBatchNorm2d
 from modeling.utils import group_norm
 import pdb
 
