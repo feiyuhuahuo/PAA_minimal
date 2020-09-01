@@ -3,6 +3,7 @@ import os
 import torch
 import datetime
 import time
+import tensorboardX
 import numpy as np
 from config import get_config
 from data.data_loader import make_data_loader
@@ -77,5 +78,5 @@ for i, (images, targets, _) in enumerate(data_loader, ckpt_iter):
 
     if i > ckpt_iter and i % cfg.val_interval == 0 or i == max_iter:
         checkpointer.save(cur_iter=i)
-        inference(model, cfg)
+        inference(model, cfg, during_train=True)
         model.train()

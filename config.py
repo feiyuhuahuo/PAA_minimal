@@ -49,9 +49,6 @@ class res50_1x_cfg:
         self.test_score_voting = True
 
         # rarely used parameters ----------------------------------
-        self.stem_norm = 'frozen_BN'  # 'frozen_BN' or 'GN'
-        self.bottleneck_norm = 'frozen_BN'
-        self.freeze_backbone_at = 2
         if not val_mode:
             self.fl_gamma = 2.  # focal loss gamma, alpha
             self.fl_alpha = 0.25
@@ -59,6 +56,7 @@ class res50_1x_cfg:
             self.momentum = 0.9
             self.warmup_factor = 1 / 3
             self.warmup_iters = 500  # TODO: this parameter seems useless
+        self.freeze_backbone_at = 2
         self.fpn_topk = 9
         self.match_iou_thre = 0.1
         self.max_detections = 100

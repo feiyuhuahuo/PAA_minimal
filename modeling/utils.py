@@ -6,34 +6,6 @@ from utils.bounding_box import BoxList
 from utils.boxlist_ops import cat_boxlist, boxlist_ml_nms, boxlist_iou
 
 
-def get_group_gn(dim, dim_per_gp, num_groups):
-    """get number of groups used by GroupNorm, based on number of channels."""
-    assert dim_per_gp == -1 or num_groups == -1, \
-        "GroupNorm: can only specify G or C/G."
-
-    if dim_per_gp > 0:
-        assert dim % dim_per_gp == 0, \
-            "dim: {}, dim_per_gp: {}".format(dim, dim_per_gp)
-        group_gn = dim // dim_per_gp
-    else:
-        assert dim % num_groups == 0, \
-            "dim: {}, num_groups: {}".format(dim, num_groups)
-        group_gn = num_groups
-
-    return group_gn
-
-
-def group_norm(out_channels, affine=True, divisor=1):
-    out_channels = out_channels // divisor
-    dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
-    num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
-    eps = cfg.MODEL.GROUP_NORM.EPSILON  # default: 1e-5
-    return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp, num_groups),
-                              out_channels,
-                              eps,
-                              affine)
-
-
 def cat(tensors, dim=0):
     """
     Efficient version of torch.cat that avoids a copy if there is only a single element in a list
