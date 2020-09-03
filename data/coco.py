@@ -1,7 +1,7 @@
 import torch
 import torchvision
 from data import transforms as T
-from utils.bounding_box import BoxList
+from utils.box_list import BoxList
 import pdb
 
 

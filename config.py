@@ -1,4 +1,5 @@
 import os
+import torch
 
 os.makedirs('results/', exist_ok=True)
 os.makedirs('weights/', exist_ok=True)
@@ -102,6 +103,24 @@ class res101_dcn_2x_cfg(res50_1x_cfg):
 
 
 def get_config(args, val_mode=False):
+    gpu_id = [int(aa.strip()) for aa in args.gpu_id.split(',')]
+    alloc = [int(aa.strip()) for aa in args.alloc.split(',')]
+
+    assert len(set(gpu_id)) == len(gpu_id), 'Error, repetitive GPU number.'
+    assert len(gpu_id) == len(alloc), 'Error, gpu_id num != alloc num.'
+    # CUDA environment variable setting must be in front of any other code which is related to GPU operation,
+    # or it will not work.
+    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
+    assert torch.cuda.device_count() == len(gpu_id), 'Error, device count does not match with args.gpu_id'
+
+    args.gpu_id = gpu_id
+    args.alloc = alloc
+
+    if val_mode:
+        args.test_bs = sum(alloc)
+    else:
+        args.train_bs = sum(alloc)
+
     cfg = res50_1x_cfg(vars(args), val_mode)  # change the desired config here
     cfg.print_cfg()
     return cfg

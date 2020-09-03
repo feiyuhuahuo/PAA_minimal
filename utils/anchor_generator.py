@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from torch import nn
-from utils.bounding_box import BoxList
+from utils.box_list import BoxList
 import pdb
 
 
@@ -24,7 +24,7 @@ class BufferList(nn.Module):
         return iter(self._buffers.values())
 
 
-class AnchorGenerator(nn.Module):
+class AnchorGenerator:
     def __init__(self, sizes, aspect_ratios, anchor_strides, straddle_thresh=0):
         super().__init__()
         assert len(anchor_strides) == len(sizes), "len(anchor_strides) != len(sizes)"
@@ -64,17 +64,16 @@ class AnchorGenerator(nn.Module):
 
         boxlist.add_field("visibility", index_inside)
 
-    def forward(self, image_list, feature_maps):
+    def __call__(self, image_list, feature_maps):
         grid_sizes = [feature_map.shape[-2:] for feature_map in feature_maps]
         anchors_all_fm = self.grid_anchors(grid_sizes)
 
         anchors = []
-        for i, (image_height, image_width) in enumerate(image_list.image_sizes):
+        for i, (img_h, img_w) in enumerate(image_list.ori_sizes):
             anchors_in_image = []
 
             for anchors_per_fm in anchors_all_fm:
-                boxlist = BoxList(anchors_per_fm, (image_width, image_height), mode="xyxy")
-                # self.add_visibility(boxlist)
+                boxlist = BoxList(anchors_per_fm, (img_w, img_h), mode="xyxy")
                 anchors_in_image.append(boxlist)
 
             anchors.append(anchors_in_image)

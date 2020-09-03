@@ -1,15 +1,13 @@
 import torch.nn as nn
-import pdb
 import math
 import torch
 from collections import OrderedDict
-from utils.boxlist_ops import to_image_list
 from modeling import fpn as fpn_module
 from modeling import resnet
-from modeling.utils import PAAPostProcessor
 from modeling.loss import PAALoss
-from modeling.anchor_generator import AnchorGenerator
+from utils.anchor_generator import AnchorGenerator
 from modeling.layers import DFConv2d
+import pdb
 
 
 class Scale(nn.Module):  # TODO: figure out the useage
@@ -87,14 +85,9 @@ class PAA(nn.Module):
         self.backbone = nn.Sequential(OrderedDict([("body", body), ("fpn", fpn)]))
         self.head = PAAHead(cfg)
         self.paa_loss = PAALoss(cfg)
-        self.post_process = PAAPostProcessor(cfg)
         self.anchor_generator = AnchorGenerator(cfg.anchor_sizes, cfg.aspect_ratios, cfg.anchor_strides)
 
     def forward(self, images, targets=None):
-        if self.training and targets is None:
-            raise ValueError("In training mode, targets should be passed")
-
-        images = to_image_list(images)
         features = self.backbone(images.tensors)
         c_pred, box_pred, iou_pred = self.head(features)
         anchors = self.anchor_generator(images, features)
@@ -102,4 +95,4 @@ class PAA(nn.Module):
         if self.training:
             return self.paa_loss(c_pred, box_pred, iou_pred, targets, anchors)
         else:
-            return self.post_process(c_pred, box_pred, iou_pred, anchors)
+            return c_pred, box_pred, iou_pred, anchors

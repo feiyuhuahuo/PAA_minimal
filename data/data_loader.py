@@ -1,15 +1,15 @@
 import bisect
-import copy
-import pdb
 import torch.utils.data as data
 from data.coco import COCODataset
-from utils.boxlist_ops import to_image_list
+import math
 import itertools
 import torch
-from torch.utils.data.sampler import BatchSampler, Sampler
+import torch.nn as nn
+from utils.box_list import ImageList
+import pdb
 
 
-class GroupedBatchSampler(BatchSampler):
+class group_sampler:
     """
     Wraps another sampler to yield a mini-batch of indices.
     It enforces that elements from the same group should appear in groups of batch_size.
@@ -18,9 +18,6 @@ class GroupedBatchSampler(BatchSampler):
     """
 
     def __init__(self, sampler, group_ids, batch_size, drop_uneven=False):
-        if not isinstance(sampler, Sampler):
-            raise ValueError(f"sampler should be an instance of torch.utils.data.Sampler, but got sampler={sampler}")
-
         self.sampler = sampler
         self.group_ids = torch.as_tensor(group_ids)
         assert self.group_ids.dim() == 1
@@ -106,7 +103,7 @@ class GroupedBatchSampler(BatchSampler):
         return len(self._batches)
 
 
-class IterationBasedBatchSampler(BatchSampler):
+class iteration_sampler:
     # Wraps a BatchSampler, resampling from it until a specified number of iterations have been sampled
     def __init__(self, batch_sampler, num_iters, start_iter=0):
         self.batch_sampler = batch_sampler
@@ -137,7 +134,26 @@ class BatchCollator:
 
     def __call__(self, batch):
         batch_list = list(zip(*batch))
-        images = to_image_list(batch_list[0], self.size_divisible)
+
+        img_tensor = batch_list[0]
+        max_size = tuple(max(s) for s in zip(*[img.shape for img in img_tensor]))
+
+        if self.size_divisible > 0:
+            stride = self.size_divisible
+            max_size = list(max_size)
+            max_size[1] = int(math.ceil(max_size[1] / stride) * stride)
+            max_size[2] = int(math.ceil(max_size[2] / stride) * stride)
+            max_size = tuple(max_size)
+
+        batch_shape = (len(img_tensor),) + max_size
+        batched_imgs = img_tensor[0].new(*batch_shape).zero_()
+
+        for img, pad_img in zip(img_tensor, batched_imgs):
+            pad_img[: img.shape[0], : img.shape[1], : img.shape[2]].copy_(img)
+
+        image_sizes = [im.shape[-2:] for im in img_tensor]
+        images = ImageList(batched_imgs, image_sizes)
+
         return images, batch_list[1], batch_list[2]
 
 
@@ -161,9 +177,40 @@ def make_data_loader(cfg, training=True, start_iter=0):
 
     group_ids = list(map(lambda y: bisect.bisect_right([1], y), aspect_ratios))
 
-    batch_sampler = GroupedBatchSampler(sampler, group_ids, batch_size, drop_uneven=False)  # same as drop_last
+    batch_sampler = group_sampler(sampler, group_ids, batch_size, drop_uneven=False)  # same as drop_last
 
     if num_iters is not None:
-        batch_sampler = IterationBasedBatchSampler(batch_sampler, num_iters, start_iter)
+        batch_sampler = iteration_sampler(batch_sampler, num_iters, start_iter)
 
-    return data.DataLoader(dataset, num_workers=6, batch_sampler=batch_sampler, collate_fn=BatchCollator())
+    return data.DataLoader(dataset, num_workers=0, batch_sampler=batch_sampler, collate_fn=BatchCollator())
+
+
+class custom_DP(nn.DataParallel):
+    def __init__(self, module, alloc):
+        super().__init__(module)
+        self.alloc = alloc
+
+    # If using only one GPU, gather() will not be entered, but scatter() will be.
+    def scatter(self, inputs, kwargs, device_ids):
+        devices = ['cuda:' + str(x) for x in device_ids]
+
+        i = 0
+        splits = []
+        imgs, gt_box, gt_category, debug_img = inputs
+        for gpu, bs in zip(devices, self.alloc):
+            one_device = []
+            one_device.append(imgs[i: i + bs].detach().to(gpu))
+            one_device.append([box.detach().to(gpu) for box in gt_box[i: i + bs]])
+            one_device.append([category.detach().to(gpu) for category in gt_category[i: i + bs]])
+            one_device.append(debug_img[i: i + bs])
+            i += bs
+            splits.append(one_device)
+
+        return splits, [kwargs] * len(devices)
+
+    @staticmethod
+    def gather(outputs, output_device):
+        box_loss = torch.stack([one_out[0].to(output_device) for one_out in outputs])
+        category_loss = torch.stack([one_out[1].to(output_device) for one_out in outputs])
+        c_p = torch.cat([one_out[2].to(output_device) for one_out in outputs], dim=0)
+        return box_loss, category_loss, c_p

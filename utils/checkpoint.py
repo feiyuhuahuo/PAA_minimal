@@ -1,7 +1,7 @@
-import pdb
 import torch
 import pickle
 from collections import OrderedDict
+import pdb
 
 
 class Checkpointer:

@@ -6,7 +6,7 @@ import time
 import tensorboardX
 import numpy as np
 from config import get_config
-from data.data_loader import make_data_loader
+from data.data_loader import make_data_loader, custom_DP
 from modeling.paa import PAA
 from val import inference
 from utils.checkpoint import Checkpointer
@@ -15,12 +15,14 @@ from utils import timer
 import pdb
 
 parser = argparse.ArgumentParser(description="PyTorch Object Detection Training")
-parser.add_argument("--train_bs", type=int, default=4)
+parser.add_argument('--gpu_id', default='0', type=str, help='The GPUs to use.')
+parser.add_argument('--alloc', default='2', type=str, help='The batch size allocated to each GPU.')
 parser.add_argument("--test_bs", type=int, default=1, help='-1 to disable')
 args = parser.parse_args()
 cfg = get_config(args)
 
 model = PAA(cfg).cuda()
+# model = custom_DP(model, alloc=cfg.alloc)
 model.train()
 
 # if cfg.MODEL.USE_SYNCBN:  # TODO: figure this out
@@ -31,7 +33,7 @@ torch.manual_seed(10)
 torch.cuda.manual_seed_all(10)
 
 optimizer = make_optimizer(cfg, model)
-scheduler = WarmupMultiStepLR(optimizer, cfg)  # TODO: figure out the lr principle
+scheduler = WarmupMultiStepLR(optimizer, cfg)  # TODO: figure out the lr principle， maybe need to modify
 checkpointer = Checkpointer(cfg, model, optimizer, scheduler)
 ckpt_iter = checkpointer.load()
 
@@ -59,12 +61,12 @@ for i, (images, targets, _) in enumerate(data_loader, ckpt_iter):
         scheduler.step()  # in pytorch >= 1.1.0, scheduler.step() should be run after optimizer.step()
 
     time_this = time.perf_counter()
-    if i > ckpt_iter :
+    if i > ckpt_iter:
         batch_time = time_this - time_last
         timer.add_batch_time(batch_time)
     time_last = time_this
 
-    if i > ckpt_iter and i % 10 == 0:
+    if i > ckpt_iter and i % 20 == 0:
         cur_lr = optimizer.param_groups[0]['lr']
         time_name = ['batch', 'data', 'for+loss', 'backward', 'update']
         t_t, t_d, t_fl, t_b, t_u = timer.get_times(time_name)

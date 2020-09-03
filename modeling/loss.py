@@ -1,9 +1,9 @@
 import torch
 import pdb
 from torch import nn
-from modeling.utils import concat_fpn_pred, encode, decode, match
+from utils.utils import concat_fpn_pred, encode, decode, match
 from modeling.sigmoid_focal_loss import focal_loss_cuda, focal_loss_cpu
-from utils.boxlist_ops import boxlist_iou, cat_boxlist
+from utils.box_list import boxlist_iou, cat_boxlist
 import sklearn.mixture as skm
 
 
@@ -14,7 +14,7 @@ class PAALoss:
 
     @staticmethod
     def GIoULoss(pred, target, anchor, weight=None):
-        pred_boxes = decode(pred.view(-1, 4), anchor.view(-1, 4))
+        pred_boxes = decode(pred.reshape(-1, 4), anchor.reshape(-1, 4))
         pred_x1 = pred_boxes[:, 0]
         pred_y1 = pred_boxes[:, 1]
         pred_x2 = pred_boxes[:, 2]
@@ -23,7 +23,7 @@ class PAALoss:
         pred_y2 = torch.max(pred_y1, pred_y2)
         pred_area = (pred_x2 - pred_x1) * (pred_y2 - pred_y1)
 
-        gt_boxes = decode(target.view(-1, 4), anchor.view(-1, 4))
+        gt_boxes = decode(target.reshape(-1, 4), anchor.reshape(-1, 4))
         target_x1 = gt_boxes[:, 0]
         target_y1 = gt_boxes[:, 1]
         target_x2 = gt_boxes[:, 2]
@@ -189,7 +189,6 @@ class PAALoss:
         return inter / (area1 + area2 - inter)
 
     def __call__(self, c_pred, box_pred, iou_pred, targets, anchors):
-        # TODO: figure out whether anchors for per image are the same
         # c_init_batch: (bs * num_anchor,), 0 for background, -1 for ignored
         # offset_init_batch: (bs * num_anchor, 4)
         # index_init_batch: (bs * num_anchor,), -1 for bakground, -2 for ignored
@@ -198,17 +197,18 @@ class PAALoss:
 
         c_pred_f, box_pred_f, iou_pred_f, anchor_f = concat_fpn_pred(c_pred, box_pred, iou_pred, anchors)
 
-        if pos_i_init.numel() > 0:  # compute anchor scores (losses) for all anchors, gradient is not needed.
-            c_loss = focal_loss_cuda(c_pred_f.detach(), c_init_batch, self.cfg.fl_gamma, self.cfg.fl_alpha)
-            box_loss = self.GIoULoss(box_pred_f.detach(), offset_init_batch, anchor_f, weight=None)
-            box_loss = box_loss[c_init_batch > 0].reshape(-1)
+        if pos_i_init.numel() > 0:
+            with torch.no_grad():  # compute anchor scores (losses) for all anchors, gradient is not needed.
+                c_loss = focal_loss_cuda(c_pred_f, c_init_batch, self.cfg.fl_gamma, self.cfg.fl_alpha)
+                box_loss = self.GIoULoss(box_pred_f, offset_init_batch, anchor_f, weight=None)
+                box_loss = box_loss[c_init_batch > 0].reshape(-1)
 
-            box_loss_full = torch.full((c_loss.shape[0],), fill_value=10000, device=c_loss.device)
-            assert box_loss.max() < 10000, 'box_loss_full initial value error'
-            box_loss_full[pos_i_init] = box_loss
+                box_loss_full = torch.full((c_loss.shape[0],), fill_value=10000, device=c_loss.device)
+                assert box_loss.max() < 10000, 'box_loss_full initial value error'
+                box_loss_full[pos_i_init] = box_loss
 
-            score_batch = c_loss.sum(dim=1) + box_loss_full
-            assert not torch.isnan(score_batch).any()  # all the elements should not be nan
+                score_batch = c_loss.sum(dim=1) + box_loss_full
+                assert not torch.isnan(score_batch).any()  # all the elements should not be nan
 
             # compute labels and targets using PAA
             final_c_batch, final_offset_batch = self.compute_paa(targets, anchors, c_init_batch,
@@ -232,7 +232,7 @@ class PAALoss:
             iou_pred_loss = self.iou_bce_loss(iou_pred_f, iou_gt) / num_pos * self.cfg.iou_loss_w
             iou_gt_sum = iou_gt.sum().item()
         else:
-            box_loss = box_f.sum()
+            box_loss = box_pred_f.sum()
 
         category_loss = cls_loss.sum() / num_pos
         box_loss = box_loss.sum() / iou_gt_sum * self.cfg.box_loss_w

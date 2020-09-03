@@ -1,4 +1,5 @@
 import torch
+from build_stuff import _C
 
 FLIP_LEFT_RIGHT = 0
 FLIP_TOP_BOTTOM = 1
@@ -214,18 +215,106 @@ class BoxList:
     def __repr__(self):
         s = self.__class__.__name__ + "("
         s += "num_boxes={}, ".format(len(self))
-        s += "image_width={}, ".format(self.size[0])
-        s += "image_height={}, ".format(self.size[1])
+        s += "img_w={}, ".format(self.size[0])
+        s += "img_h={}, ".format(self.size[1])
         s += "mode={})".format(self.mode)
         return s
 
 
-if __name__ == "__main__":
-    bbox = BoxList([[0, 0, 10, 10], [0, 0, 5, 5]], (10, 10))
-    s_bbox = bbox.resize((5, 5))
-    print(s_bbox)
-    print(s_bbox.bbox)
+def boxlist_ml_nms(boxlist, nms_thresh, max_proposals=-1, score_field="scores", label_field="labels"):
+    """
+    Performs non-maximum suppression on a boxlist, with scores specified
+    in a boxlist field via score_field.
 
-    t_bbox = bbox.transpose(0)
-    print(t_bbox)
-    print(t_bbox.bbox)
+    Arguments:
+        boxlist(BoxList)
+        nms_thresh (float)
+        max_proposals (int): if > 0, then only the top max_proposals are kept after non-maximum suppression
+        score_field (str)
+    """
+    if nms_thresh <= 0:
+        return boxlist
+
+    mode = boxlist.mode
+    boxlist = boxlist.convert("xyxy")
+    boxes = boxlist.bbox
+    scores = boxlist.get_field(score_field)
+    labels = boxlist.get_field(label_field)
+    keep = _C.ml_nms(boxes, scores, labels.float(), nms_thresh)
+
+    if max_proposals > 0:
+        keep = keep[: max_proposals]
+
+    return boxlist[keep].convert(mode)
+
+
+def boxlist_iou(boxlist1, boxlist2):
+    assert boxlist1.size == boxlist2.size, 'boxlists should have same image size'
+
+    area1 = boxlist1.area()
+    area2 = boxlist2.area()
+
+    box1, box2 = boxlist1.bbox, boxlist2.bbox
+
+    lt = torch.max(box1[:, None, :2], box2[:, :2])  # [N,M,2]
+    rb = torch.min(box1[:, None, 2:], box2[:, 2:])  # [N,M,2]
+
+    TO_REMOVE = 1
+
+    wh = (rb - lt + TO_REMOVE).clamp(min=0)  # [N,M,2]
+    inter = wh[:, :, 0] * wh[:, :, 1]  # [N,M]
+
+    iou = inter / (area1[:, None] + area2 - inter)
+    return iou
+
+
+# TODO redundant, remove
+def _cat(tensors, dim=0):
+    """
+    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
+    """
+    assert isinstance(tensors, (list, tuple))
+    if len(tensors) == 1:
+        return tensors[0]
+    return torch.cat(tensors, dim)
+
+
+def cat_boxlist(bboxes):
+    """
+    Concatenates a list of BoxList (having the same image size) into a single BoxList
+    """
+    assert isinstance(bboxes, (list, tuple))
+    assert all(isinstance(bbox, BoxList) for bbox in bboxes)
+
+    size = bboxes[0].size
+    assert all(bbox.size == size for bbox in bboxes)
+
+    mode = bboxes[0].mode
+    assert all(bbox.mode == mode for bbox in bboxes)
+
+    fields = set(bboxes[0].fields())
+    assert all(set(bbox.fields()) == fields for bbox in bboxes)
+
+    cat_boxes = BoxList(_cat([bbox.bbox for bbox in bboxes], dim=0), size, mode)
+
+    for field in fields:
+        data = _cat([bbox.get_field(field) for bbox in bboxes], dim=0)
+        cat_boxes.add_field(field, data)
+
+    return cat_boxes
+
+
+class ImageList:
+    def __init__(self, tensors, image_sizes):
+        self.tensors = tensors
+        self.ori_sizes = image_sizes
+
+    def to(self, *args, **kwargs):
+        cast_tensor = self.tensors.to(*args, **kwargs)
+        return ImageList(cast_tensor, self.ori_sizes)
+
+    def __repr__(self):
+        bs, size, dtype = len(self.tensors), self.tensors[0].shape, self.tensors[0].dtype
+        s = f'tensors:\nbs: {bs}, size: {size}, dtype: {dtype}\n'
+        s += f'ori_sizes:\n{self.ori_sizes}'
+        return s

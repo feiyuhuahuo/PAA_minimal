@@ -1,19 +1,22 @@
 import argparse
-import os
-import pdb
+import time
 import torch
 import numpy as np
 from config import get_config
 from data.data_loader import make_data_loader
 from modeling.paa import PAA
-from tqdm import tqdm
+from utils.utils import ProgressBar
+from utils.post_processor import post_process
 import json
+from utils import timer
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
+import pdb
 
 parser = argparse.ArgumentParser(description="PyTorch Object Detection Evaluation")
-parser.add_argument("--test_bs", type=int, default=1)
 parser.add_argument("--weight", type=str, default='weights/paa_res50.pth')
+parser.add_argument('--gpu_id', default='0', type=str, help='The GPUs to use.')
+parser.add_argument('--alloc', default='2', type=str, help='The batch size allocated to each GPU.')
 
 
 def compute_thre_per_class(coco_eval):
@@ -45,34 +48,59 @@ def inference(model, cfg, during_train=False):
     predictions, coco_results = {}, []
     val_loader = make_data_loader(cfg, training=False)
     dataset = val_loader.dataset
+    dl = len(val_loader)
+    bar = ProgressBar(length=40, max_val=dl)
+    timer.init()
 
     with torch.no_grad():
-        for _, batch in enumerate(tqdm(val_loader)):
-            images, targets, image_ids = batch
-            output = model(images.to(torch.device("cuda")))
-            output = [aa.to(torch.device("cpu")) for aa in output]
+        for i, (images, targets, image_ids) in enumerate(val_loader):
+            if i > 0:
+                timer.start()
 
-            for img_id, prediction in zip(image_ids, output):
-                original_id = dataset.id_img_map[img_id]
-                if len(prediction) == 0:
-                    continue
+            with timer.counter('forward'):
+                c_pred, box_pred, iou_pred, anchors = model(images.to(torch.device("cuda")))
 
-                img_info = dataset.get_img_info(img_id)
-                image_width = img_info["width"]
-                image_height = img_info["height"]
-                prediction = prediction.resize((image_width, image_height))
-                prediction = prediction.convert("xywh")
+            with timer.counter('post_process'):
+                pred_batch = post_process(cfg, c_pred, box_pred, iou_pred, anchors)
+                pred_batch = [aa.to(torch.device("cpu")) for aa in pred_batch]
 
-                boxes = prediction.bbox.tolist()
-                scores = prediction.get_field("scores").tolist()
-                labels = prediction.get_field("labels").tolist()
+            with timer.counter('accumulate'):
+                for img_id, prediction in zip(image_ids, pred_batch):
+                    original_id = dataset.id_img_map[img_id]
+                    if len(prediction) == 0:
+                        continue
 
-                mapped_labels = [dataset.contiguous_id_to_class_id[i] for i in labels]
-                coco_results.extend([{"image_id": original_id,
-                                      "category_id": mapped_labels[k],
-                                      "bbox": box,
-                                      "score": scores[k]} for k, box in enumerate(boxes)])
+                    img_info = dataset.get_img_info(img_id)
+                    image_width = img_info["width"]
+                    image_height = img_info["height"]
+                    prediction = prediction.resize((image_width, image_height))
+                    prediction = prediction.convert("xywh")
 
+                    boxes = prediction.bbox.tolist()
+                    scores = prediction.get_field("scores").tolist()
+                    labels = prediction.get_field("labels").tolist()
+
+                    mapped_labels = [dataset.contiguous_id_to_class_id[i] for i in labels]
+                    coco_results.extend([{"image_id": original_id,
+                                          "category_id": mapped_labels[k],
+                                          "bbox": box,
+                                          "score": scores[k]} for k, box in enumerate(boxes)])
+
+            aa = time.perf_counter()
+            if i > 0:
+                batch_time = aa - temp
+                timer.add_batch_time(batch_time)
+            temp = aa
+
+            if i > 0:
+                time_name = ['batch', 'data', 'forward', 'post_process', 'accumulate']
+                t_t, t_d, t_f, t_pp, t_acc = timer.get_times(time_name)
+                fps, t_fps = 1 / (t_d + t_f + t_pp), 1 / t_t
+                bar_str = bar.get_bar(i + 1)
+                print(f'\rTesting: {bar_str} {i + 1}/{dl}, fps: {fps:.2f} | total fps: {t_fps:.2f} | t_t: {t_t:.3f} | '
+                      f't_d: {t_d:.3f} | t_f: {t_f:.3f} | t_pp: {t_pp:.3f} | t_acc: {t_acc:.3f}', end='')
+
+    print('\n\nTesting ended, doing evaluation...')
     file_path = f'results/{cfg.backbone}_bbox.json'
     with open(file_path, "w") as f:
         json.dump(coco_results, f)
