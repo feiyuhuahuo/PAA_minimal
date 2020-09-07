@@ -85,14 +85,15 @@ class PAA(nn.Module):
         self.backbone = nn.Sequential(OrderedDict([("body", body), ("fpn", fpn)]))
         self.head = PAAHead(cfg)
         self.paa_loss = PAALoss(cfg)
-        self.anchor_generator = AnchorGenerator(cfg.anchor_sizes, cfg.aspect_ratios, cfg.anchor_strides)
+        self.anchor_generator = AnchorGenerator(cfg)
 
-    def forward(self, images, targets=None):
-        features = self.backbone(images.tensors)
+    def forward(self, img_tensor_batch, box_list_batch=None):
+        features = self.backbone(img_tensor_batch)
         c_pred, box_pred, iou_pred = self.head(features)
-        anchors = self.anchor_generator(images, features)
+        anchors = self.anchor_generator(features)
+        self.paa_loss.anchors = anchors
 
         if self.training:
-            return self.paa_loss(c_pred, box_pred, iou_pred, targets, anchors)
+            return self.paa_loss(c_pred, box_pred, iou_pred, box_list_batch)
         else:
             return c_pred, box_pred, iou_pred, anchors

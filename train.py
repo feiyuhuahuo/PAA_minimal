@@ -1,5 +1,4 @@
 import argparse
-import os
 import torch
 import datetime
 import time
@@ -22,7 +21,7 @@ args = parser.parse_args()
 cfg = get_config(args)
 
 model = PAA(cfg).cuda()
-# model = custom_DP(model, alloc=cfg.alloc)
+model = custom_DP(model, alloc=cfg.alloc)
 model.train()
 
 # if cfg.MODEL.USE_SYNCBN:  # TODO: figure this out
@@ -33,23 +32,22 @@ torch.manual_seed(10)
 torch.cuda.manual_seed_all(10)
 
 optimizer = make_optimizer(cfg, model)
-scheduler = WarmupMultiStepLR(optimizer, cfg)  # TODO: figure out the lr principle， maybe need to modify
+scheduler = WarmupMultiStepLR(optimizer, cfg)  # TODO: figure out the lr principle， ybe need to modify
 checkpointer = Checkpointer(cfg, model, optimizer, scheduler)
 ckpt_iter = checkpointer.load()
 
-data_loader = make_data_loader(cfg, training=True, start_iter=ckpt_iter)
+data_loader = make_data_loader(cfg, start_iter=ckpt_iter)
 
 max_iter = len(data_loader)
 timer.init()
-for i, (images, targets, _) in enumerate(data_loader, ckpt_iter):
+for i, (img_list_batch, box_list_batch) in enumerate(data_loader, ckpt_iter):
     if i > 0:
         timer.start()
 
-    images = images.to(torch.device("cuda"))
-    targets = [target.to(torch.device("cuda")) for target in targets]
+    img_tensor_batch = torch.stack([aa.img for aa in img_list_batch], dim=0)
 
     with timer.counter('for+loss'):
-        category_loss, box_loss, iou_loss = model(images, targets)
+        category_loss, box_loss, iou_loss = model(img_tensor_batch, box_list_batch)
 
     with timer.counter('backward'):
         losses = category_loss + box_loss + iou_loss

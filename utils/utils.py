@@ -1,14 +1,11 @@
 import torch
 import math
-import torch.nn as nn
-from utils.box_list import BoxList, cat_boxlist
+from utils.box_list import cat_boxlist
 import pdb
 
 
 def cat(tensors, dim=0):
-    """
-    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
-    """
+    # Efficient version of torch.cat that avoids a copy if there is only a single element in a list
     assert isinstance(tensors, (list, tuple))
     if len(tensors) == 1:
         return tensors[0]
@@ -43,7 +40,7 @@ def concat_fpn_pred(c_pred, box_pred, iou_pred, anchors):
     iou_pred_flatten = [aa.permute(0, 2, 3, 1).reshape(bs, -1, 1) for aa in iou_pred]
     iou_pred_flatten = torch.cat(iou_pred_flatten, dim=1).reshape(-1)
 
-    anchor_flatten = torch.cat([cat_boxlist(anchor_per_img).bbox for anchor_per_img in anchors], dim=0)
+    anchor_flatten = torch.cat([cat_boxlist(anchor_per_img).box for anchor_per_img in anchors], dim=0)
 
     return c_flatten, box_flatten, iou_pred_flatten, anchor_flatten
 

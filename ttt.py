@@ -1,10 +1,10 @@
 #!/usr/bin/env python 
 # -*- coding:utf-8 -*-
-# from collections import OrderedDict
-# import torch
-# import pdb
-#
-# aa = torch.load('paa_res1011.pth')
+from collections import OrderedDict
+import torch
+import pdb
+
+# aa = torch.load('weights/paa_res50.pth')
 # bb = OrderedDict()
 # cc = OrderedDict()
 #
@@ -19,3 +19,15 @@
 #         bb[k] = cc
 #
 # torch.save(bb, 'paa_res10111.pth')
+
+class B:
+    def ba(self):
+        pass
+
+    def bb(self):
+        pass
+
+
+b = B()
+print(b.ba is b.bb)  # False
+print(id(b.ba) == id(b.bb))  # True

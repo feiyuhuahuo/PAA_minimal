@@ -5,7 +5,6 @@ import math
 import itertools
 import torch
 import torch.nn as nn
-from utils.box_list import ImageList
 import pdb
 
 
@@ -30,13 +29,10 @@ class group_sampler:
         dataset_size = len(self.group_ids)
         # get the sampled indices from the sampler
         sampled_ids = torch.as_tensor(list(self.sampler))
-        # potentially not all elements of the dataset were sampled
-        # by the sampler (e.g., DistributedSampler).
-        # construct a tensor which contains -1 if the element was
-        # not sampled, and a non-negative number indicating the
-        # order where the element was sampled.
-        # for example. if sampled_ids = [3, 1] and dataset_size = 5,
-        # the order is [-1, 1, -1, 0, -1]
+        # potentially not all elements of the dataset were sampled by the sampler (e.g., DistributedSampler).
+        # construct a tensor which contains -1 if the element was not sampled, and a non-negative number
+        # indicating the order where the element was sampled.
+        # for example. if sampled_ids = [3, 1] and dataset_size = 5, the order is [-1, 1, -1, 0, -1]
         order = torch.full((dataset_size,), -1, dtype=torch.int64)
         order[sampled_ids] = torch.arange(len(sampled_ids))
 
@@ -44,35 +40,28 @@ class group_sampler:
         mask = order >= 0
         # find the elements that belong to each individual cluster
         clusters = [(self.group_ids == i) & mask for i in self.groups]
-        # get relative order of the elements inside each cluster
-        # that follows the order from the sampler
+        # get relative order of the elements inside each cluster that follows the order from the sampler
         relative_order = [order[cluster] for cluster in clusters]
-        # with the relative order, find the absolute order in the
-        # sampled space
+        # with the relative order, find the absolute order in the sampled space
         permutation_ids = [s[s.sort()[1]] for s in relative_order]
-        # permute each cluster so that they follow the order from
-        # the sampler
+        # permute each cluster so that they follow the order from the sampler
         permuted_clusters = [sampled_ids[idx] for idx in permutation_ids]
 
         # splits each cluster in batch_size, and merge as a list of tensors
         splits = [c.split(self.batch_size) for c in permuted_clusters]
         merged = tuple(itertools.chain.from_iterable(splits))
 
-        # now each batch internally has the right order, but
-        # they are grouped by clusters. Find the permutation between
-        # different batches that brings them as close as possible to
-        # the order that we have in the sampler. For that, we will consider the
-        # ordering as coming from the first element of each batch, and sort
-        # correspondingly
+        # now each batch internally has the right order, but they are grouped by clusters.
+        # Find the permutation between different batches that brings them as close as possible to
+        # the order that we have in the sampler. For that, we will consider the ordering as coming from
+        # the first element of each batch, and sort correspondingly
         first_element_of_batch = [t[0].item() for t in merged]
-        # get and inverse mapping from sampled indices and the position where
-        # they occur (as returned by the sampler)
+        # get and inverse mapping from sampled indices and the position where they occur (as returned by the sampler)
         inv_sampled_ids_map = {v: k for k, v in enumerate(sampled_ids.tolist())}
         # from the first element in each batch, get a relative ordering
         first_index_of_batch = torch.as_tensor([inv_sampled_ids_map[s] for s in first_element_of_batch])
 
-        # permute the batches so that they approximately follow the order
-        # from the sampler
+        # permute the batches so that they approximately follow the order from the sampler
         permutation_order = first_index_of_batch.sort(0)[1].tolist()
         # finally, permute the batches
         batches = [merged[i].tolist() for i in permutation_order]
@@ -134,9 +123,8 @@ class BatchCollator:
 
     def __call__(self, batch):
         batch_list = list(zip(*batch))
-
-        img_tensor = batch_list[0]
-        max_size = tuple(max(s) for s in zip(*[img.shape for img in img_tensor]))
+        img_list_batch, box_list_batch = batch_list[0], batch_list[1]
+        max_size = tuple(max(s) for s in zip(*[img_list.img.shape for img_list in img_list_batch]))
 
         if self.size_divisible > 0:
             stride = self.size_divisible
@@ -145,21 +133,21 @@ class BatchCollator:
             max_size[2] = int(math.ceil(max_size[2] / stride) * stride)
             max_size = tuple(max_size)
 
-        batch_shape = (len(img_tensor),) + max_size
-        batched_imgs = img_tensor[0].new(*batch_shape).zero_()
+        batch_shape = (len(img_list_batch),) + max_size
+        batched_imgs = img_list_batch[0].img.new(*batch_shape).zero_()
 
-        for img, pad_img in zip(img_tensor, batched_imgs):
-            pad_img[: img.shape[0], : img.shape[1], : img.shape[2]].copy_(img)
+        for img_l, pad_img in zip(img_list_batch, batched_imgs):
+            pad_img[: img_l.img.shape[0], : img_l.img.shape[1], : img_l.img.shape[2]].copy_(img_l.img)
+            img_l.img = pad_img
+            img_l.padded_size = (pad_img.shape[2], pad_img.shape[1])
 
-        image_sizes = [im.shape[-2:] for im in img_tensor]
-        images = ImageList(batched_imgs, image_sizes)
-
-        return images, batch_list[1], batch_list[2]
+        return img_list_batch, box_list_batch
 
 
-def make_data_loader(cfg, training=True, start_iter=0):
-    dataset = COCODataset(cfg, training)
-    if training:
+def make_data_loader(cfg, start_iter=0):
+    dataset = COCODataset(cfg)
+
+    if hasattr(cfg, 'train_bs'):
         batch_size = cfg.train_bs
         sampler = data.sampler.RandomSampler(dataset)
         num_iters = cfg.max_iter
@@ -182,7 +170,7 @@ def make_data_loader(cfg, training=True, start_iter=0):
     if num_iters is not None:
         batch_sampler = iteration_sampler(batch_sampler, num_iters, start_iter)
 
-    return data.DataLoader(dataset, num_workers=0, batch_sampler=batch_sampler, collate_fn=BatchCollator())
+    return data.DataLoader(dataset, num_workers=6, batch_sampler=batch_sampler, collate_fn=BatchCollator())
 
 
 class custom_DP(nn.DataParallel):
@@ -193,7 +181,7 @@ class custom_DP(nn.DataParallel):
     # If using only one GPU, gather() will not be entered, but scatter() will be.
     def scatter(self, inputs, kwargs, device_ids):
         devices = ['cuda:' + str(x) for x in device_ids]
-
+        pdb.set_trace()
         i = 0
         splits = []
         imgs, gt_box, gt_category, debug_img = inputs

@@ -1,12 +1,41 @@
 import torch
 import torchvision
-from data import transforms as T
+import PIL
+from data.transforms import train_aug, val_aug
 from utils.box_list import BoxList
 import pdb
 
 
+class ImageList:
+    def __init__(self, img, ori_size, id):
+        self.img = img
+        self.ori_size = ori_size
+        self.id = id
+
+    def to_device(self, device):
+        self.tensors = self.tensors.to(device)
+
+    def __repr__(self):
+        if isinstance(self.img, torch.Tensor):
+            s = f'\nimg: shape: {self.img.shape}, dtype: {self.img.dtype}, device: {self.img.device}, ' \
+                f'grad: {self.img.requires_grad}'
+        elif isinstance(self.img, PIL.Image.Image):
+            s = f'\nimg: {type(self.img)}'
+        else:
+            raise TypeError(f'Unrecognized img type, got {type(self.img)}.')
+
+        for k, v in vars(self).items():
+            if k != 'img':
+                s += f'\n{k}: {v}'
+
+        return s + '\n'
+
+
 class COCODataset(torchvision.datasets.coco.CocoDetection):
-    def __init__(self, cfg, training):
+    def __init__(self, cfg):
+        self.cfg = cfg
+        training = hasattr(cfg, 'train_bs')
+
         img_path = cfg.train_imgs if training else cfg.val_imgs
         ann_file = cfg.train_ann if training else cfg.val_ann
         super().__init__(img_path, ann_file)
@@ -22,28 +51,13 @@ class COCODataset(torchvision.datasets.coco.CocoDetection):
                     ids.append(img_id)
 
             self.ids = ids
-
-            if cfg.min_size_range_train[0] == -1:
-                min_size = cfg.min_size_train
-            else:
-                assert len(cfg.min_size_range_train) == 2, "min_size_range_train error "
-                min_size = list(range(cfg.min_size_range_train[0], cfg.min_size_range_train[1] + 1))
-
-            max_size = cfg.max_size_train
-            flip_prob = 0.5
+            self.aug = train_aug
         else:
-            min_size = cfg.min_size_test
-            max_size = cfg.max_size_test
-            flip_prob = 0
+            self.aug = val_aug
 
-        self.class_id_to_contiguous_id = {v: i + 1 for i, v in enumerate(self.coco.getCatIds())}
-        self.contiguous_id_to_class_id = {v: k for k, v in self.class_id_to_contiguous_id.items()}
+        self.to_contiguous_id = {v: i + 1 for i, v in enumerate(self.coco.getCatIds())}
+        self.to_category_id = {v: k for k, v in self.to_contiguous_id.items()}
         self.id_img_map = {k: v for k, v in enumerate(self.ids)}
-        self.transform = T.Compose([T.Resize(min_size, max_size),
-                                    T.RandomHorizontalFlip(flip_prob),
-                                    T.ToTensor(),
-                                    T.Normalize(mean=[102.9801, 115.9465, 122.7717], std=[1., 1., 1.],
-                                                to_bgr255=True)])
 
     def get_img_info(self, index):
         img_id = self.id_img_map[index]
@@ -52,7 +66,6 @@ class COCODataset(torchvision.datasets.coco.CocoDetection):
 
     @staticmethod
     def has_valid_annotation(anno):
-        # if it's empty, there is no annotation
         if len(anno) == 0:
             return False
         # if all boxes have close to zero area, there is no annotation
@@ -61,21 +74,23 @@ class COCODataset(torchvision.datasets.coco.CocoDetection):
 
         return True
 
-    def __getitem__(self, idx):
-        img, anno = super().__getitem__(idx)
+    def __getitem__(self, index):
+        img, anno = super().__getitem__(index)
 
         anno = [aa for aa in anno if aa["iscrowd"] == 0]  # filter crowd annotations
-        boxes = [aa["bbox"] for aa in anno]
-        boxes = torch.as_tensor(boxes).reshape(-1, 4)  # guard against no boxes
-        target = BoxList(boxes, img.size, mode="xywh").convert("xyxy")
-        classes = [aa["category_id"] for aa in anno]
-        classes = [self.class_id_to_contiguous_id[c] for c in classes]
-        classes = torch.tensor(classes)
-        target.add_field("labels", classes)
+        box = [aa["bbox"] for aa in anno]
+        box = torch.as_tensor(box).reshape(-1, 4)
 
-        target = target.clip_to_image(remove_empty=True)
+        category = [aa["category_id"] for aa in anno]
+        category = [self.to_contiguous_id[c] for c in category]
 
-        if self.transform is not None:
-            img, target = self.transform(img, target)
+        # img is a PIL object, and it's size = (img_width, img_height)
+        img_list = ImageList(img, ori_size=img.size, id=index)
 
-        return img, target, idx
+        box_list = BoxList(box, img.size, 'x1y1wh', label=torch.tensor(category))
+        box_list.convert_mode('x1y1x2y2')
+        box_list.clip_to_image(remove_empty=True)
+
+        img_list, box_list = self.aug(img_list, box_list, self.cfg)
+
+        return img_list, box_list

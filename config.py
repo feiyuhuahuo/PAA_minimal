@@ -27,8 +27,7 @@ class res50_1x_cfg:
         self.aspect_ratios = (1.,)
 
         if not val_mode:
-            self.min_size_train = (800,)
-            self.min_size_range_train = (-1, -1)  # for multi-scale training
+            self.min_size_train = 800
             self.max_size_train = 1333
 
             self.box_loss_w = 1.3
@@ -84,7 +83,7 @@ class res101_2x_cfg(res50_1x_cfg):
         self.backbone = 'res101'
         if not val_mode:
             self.weight = 'weights/R-101.pkl'
-            self.min_size_range_train = (640, 800)
+            self.min_size_train = (640, 800)
             self.max_iter = int(180000 / self.bs_factor)
             self.decay_steps = (int(120000 / self.bs_factor), int(160000 / self.bs_factor))
 
@@ -97,7 +96,7 @@ class res101_dcn_2x_cfg(res50_1x_cfg):
         self.dcn_tower = True
         if not val_mode:
             self.weight = 'weights/R-101.pkl'
-            self.min_size_range_train = (640, 800)
+            self.min_size_train = (640, 800)
             self.max_iter = int(180000 / self.bs_factor)
             self.decay_steps = (int(120000 / self.bs_factor), int(160000 / self.bs_factor))
 
@@ -118,9 +117,11 @@ def get_config(args, val_mode=False):
 
     if val_mode:
         args.test_bs = sum(alloc)
+        assert len(gpu_id) == 1, f'In val mode, only one GPU can be used, got {len(gpu_id)}.'
     else:
         args.train_bs = sum(alloc)
 
     cfg = res50_1x_cfg(vars(args), val_mode)  # change the desired config here
     cfg.print_cfg()
+
     return cfg

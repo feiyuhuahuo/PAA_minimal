@@ -1,260 +1,172 @@
 import torch
 from build_stuff import _C
-
-FLIP_LEFT_RIGHT = 0
-FLIP_TOP_BOTTOM = 1
+import copy
+import pdb
 
 
 class BoxList:
-    """
-    This class represents a set of bounding boxes, represented as a Nx4 Tensor.
-    They can contain extra information that is specific to each bounding box, such as labels.
-    """
+    def __init__(self, box, img_size, mode, **kwargs):
+        assert isinstance(box, torch.Tensor), f'box should be a tensor, got {type(box)}'
+        assert box.size(1) == 4, f'The last dimension of box should be 4, got {box.size(1)}'
+        assert mode in ('x1y1x2y2', 'x1y1wh', 'xcycwh'), "mode should be 'x1y1x2y2' or 'x1y1wh' or 'xcycwh'"
 
-    def __init__(self, bbox, image_size, mode="xyxy"):
-        device = bbox.device if isinstance(bbox, torch.Tensor) else torch.device("cpu")
-        bbox = torch.as_tensor(bbox, dtype=torch.float32, device=device)
-        assert bbox.ndimension() == 2, f"bbox should have 2 dimensions, got {bbox.ndimension()}"
-        assert bbox.size(-1) == 4, f"last dimension of bbox should be 4, got {bbox.size(-1)}"
-        assert mode in ("xyxy", "xywh"), "mode should be 'xyxy' or 'xywh'"
-
-        self.bbox = bbox
-        self.size = image_size  # (image_width, image_height)
+        self.box = box
+        self.img_size = img_size
         self.mode = mode
-        self.extra_fields = {}
 
-    def add_field(self, field, field_data):
-        self.extra_fields[field] = field_data
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
-    def get_field(self, field):
-        return self.extra_fields[field]
-
-    def has_field(self, field):
-        return field in self.extra_fields
-
-    def fields(self):
-        return list(self.extra_fields.keys())
-
-    def _copy_extra_fields(self, bbox):
-        for k, v in bbox.extra_fields.items():
-            self.extra_fields[k] = v
-
-    def convert(self, mode):
-        if mode not in ("xyxy", "xywh"):
-            raise ValueError("mode should be 'xyxy' or 'xywh'")
-        if mode == self.mode:
-            return self
-
-        xmin, ymin, xmax, ymax = self._split_into_xyxy()
-        if mode == "xyxy":
-            bbox = torch.cat((xmin, ymin, xmax, ymax), dim=-1)
-            bbox = BoxList(bbox, self.size, mode=mode)
+    def convert_mode(self, to_mode):
+        TO_REMOVE = 1
+        if self.mode == to_mode:
+            print(f'mode already is {to_mode}, nothing changed.')
         else:
-            TO_REMOVE = 1
-            bbox = torch.cat((xmin, ymin, xmax - xmin + TO_REMOVE, ymax - ymin + TO_REMOVE), dim=-1)
-            bbox = BoxList(bbox, self.size, mode=mode)
+            if to_mode == 'x1y1x2y2':
+                if self.mode == 'x1y1wh':
+                    x1, y1, w, h = self.box.split(1, dim=1)
+                    x2 = x1 + (w - TO_REMOVE).clamp(min=0)
+                    y2 = y1 + (h - TO_REMOVE).clamp(min=0)
+                    self.box = torch.cat((x1, y1, x2, y2), dim=1)
+                    self.mode = 'x1y1x2y2'
+                elif self.mode == 'xcycwh':
+                    raise NotImplementedError
 
-        bbox._copy_extra_fields(self)
-        return bbox
+            elif to_mode == 'x1y1wh':
+                if self.mode == 'x1y1x2y2':
+                    x1, y1, x2, y2 = self.box.split(1, dim=1)
+                    self.box = torch.cat((x1, y1, x2 - x1 + TO_REMOVE, y2 - y1 + TO_REMOVE), dim=1)
+                    self.mode = 'x1y1wh'
+                elif self.mode == 'xcycwh':
+                    raise NotImplementedError
 
-    def _split_into_xyxy(self):
-        if self.mode == "xyxy":
-            xmin, ymin, xmax, ymax = self.bbox.split(1, dim=-1)
-            return xmin, ymin, xmax, ymax
-        elif self.mode == "xywh":
-            TO_REMOVE = 1
-            xmin, ymin, w, h = self.bbox.split(1, dim=-1)
-            return (xmin,
-                    ymin,
-                    xmin + (w - TO_REMOVE).clamp(min=0),
-                    ymin + (h - TO_REMOVE).clamp(min=0))
+            elif to_mode == 'xcycwh':
+                raise NotImplementedError
 
-    def resize(self, size, *args, **kwargs):
-        ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(size, self.size))
-        if ratios[0] == ratios[1]:
-            ratio = ratios[0]
-            scaled_box = self.bbox * ratio
-            bbox = BoxList(scaled_box, size, mode=self.mode)
+            else:
+                raise ValueError('Unrecognized mode.')
 
-            for k, v in self.extra_fields.items():
-                if not isinstance(v, torch.Tensor):
-                    v = v.resize(size, *args, **kwargs)
-                bbox.add_field(k, v)
+    def resize(self, new_size):
+        ratios = [float(s) / float(s_ori) for s, s_ori in zip(new_size, self.img_size)]
 
-            return bbox
+        if self.mode == 'x1y1x2y2':
+            x1, y1, x2, y2 = self.box.split(1, dim=1)
+            x1 *= ratios[0]
+            x2 *= ratios[0]
+            y1 *= ratios[1]
+            y2 *= ratios[1]
+            self.box = torch.cat((x1, y1, x2, y2), dim=1)
 
-        ratio_width, ratio_height = ratios
-        xmin, ymin, xmax, ymax = self._split_into_xyxy()
-        scaled_xmin = xmin * ratio_width
-        scaled_xmax = xmax * ratio_width
-        scaled_ymin = ymin * ratio_height
-        scaled_ymax = ymax * ratio_height
-        scaled_box = torch.cat((scaled_xmin, scaled_ymin, scaled_xmax, scaled_ymax), dim=-1)
-        bbox = BoxList(scaled_box, size, mode="xyxy")
+        elif self.mode == 'x1y1wh' or self.mode == 'xcycwh':
+            raise NotImplementedError
 
-        for k, v in self.extra_fields.items():
-            if not isinstance(v, torch.Tensor):
-                v = v.resize(size, *args, **kwargs)
-            bbox.add_field(k, v)
+        self.img_size = new_size
 
-        return bbox.convert(self.mode)
+    def box_flip(self, method='h_flip'):
+        img_w, img_h = self.img_size
 
-    def transpose(self, method):
-        """
-        Transpose bounding box (flip or rotate in 90 degree steps)
-        :param method: One of :py:attr:`PIL.Image.FLIP_LEFT_RIGHT`,
-          :py:attr:`PIL.Image.FLIP_TOP_BOTTOM`, :py:attr:`PIL.Image.ROTATE_90`,
-          :py:attr:`PIL.Image.ROTATE_180`, :py:attr:`PIL.Image.ROTATE_270`,
-          :py:attr:`PIL.Image.TRANSPOSE` or :py:attr:`PIL.Image.TRANSVERSE`.
-        """
-        if method not in (FLIP_LEFT_RIGHT, FLIP_TOP_BOTTOM):
-            raise NotImplementedError("Only FLIP_LEFT_RIGHT and FLIP_TOP_BOTTOM implemented")
+        if self.mode == 'x1y1x2y2':
+            x1, y1, x2, y2 = self.box.split(1, dim=1)
+            if method == 'h_flip':
+                TO_REMOVE = 1
+                new_x1 = img_w - x2 - TO_REMOVE
+                new_x2 = img_w - x1 - TO_REMOVE
+                new_y1 = y1
+                new_y2 = y2
+            elif method == 'v_flip':
+                new_x1 = x1
+                new_x2 = x2
+                new_y1 = img_h - y2
+                new_y2 = img_h - y1
+            else:
+                raise ValueError(f'flip method should in (h_flip, v_flip), got {method}')
 
-        image_width, image_height = self.size
-        xmin, ymin, xmax, ymax = self._split_into_xyxy()
-        if method == FLIP_LEFT_RIGHT:
-            TO_REMOVE = 1
-            transposed_xmin = image_width - xmax - TO_REMOVE
-            transposed_xmax = image_width - xmin - TO_REMOVE
-            transposed_ymin = ymin
-            transposed_ymax = ymax
-        elif method == FLIP_TOP_BOTTOM:
-            transposed_xmin = xmin
-            transposed_xmax = xmax
-            transposed_ymin = image_height - ymax
-            transposed_ymax = image_height - ymin
+            self.box = torch.cat((new_x1, new_y1, new_x2, new_y2), dim=1)
 
-        transposed_boxes = torch.cat((transposed_xmin, transposed_ymin, transposed_xmax, transposed_ymax), dim=-1)
-        bbox = BoxList(transposed_boxes, self.size, mode="xyxy")
+        elif self.mode == 'x1y1wh' or self.mode == 'xcycwh':
+            raise NotImplementedError
 
-        for k, v in self.extra_fields.items():
-            if not isinstance(v, torch.Tensor):
-                v = v.transpose(method)
-            bbox.add_field(k, v)
-        return bbox.convert(self.mode)
-
-    def crop(self, box):
-        """
-        Cropss a rectangular region from this bounding box. The box is a
-        4-tuple defining the left, upper, right, and lower pixel
-        coordinate.
-        """
-        xmin, ymin, xmax, ymax = self._split_into_xyxy()
-        w, h = box[2] - box[0], box[3] - box[1]
-        cropped_xmin = (xmin - box[0]).clamp(min=0, max=w)
-        cropped_ymin = (ymin - box[1]).clamp(min=0, max=h)
-        cropped_xmax = (xmax - box[0]).clamp(min=0, max=w)
-        cropped_ymax = (ymax - box[1]).clamp(min=0, max=h)
-
-        # TODO should I filter empty boxes here?
-        if False:
-            is_empty = (cropped_xmin == cropped_xmax) | (cropped_ymin == cropped_ymax)
-
-        cropped_box = torch.cat((cropped_xmin, cropped_ymin, cropped_xmax, cropped_ymax), dim=-1)
-        bbox = BoxList(cropped_box, (w, h), mode="xyxy")
-
-        for k, v in self.extra_fields.items():
-            if not isinstance(v, torch.Tensor):
-                v = v.crop(box)
-            bbox.add_field(k, v)
-        return bbox.convert(self.mode)
-
-    # Tensor-like methods
-    def to(self, device):
-        bbox = BoxList(self.bbox.to(device), self.size, self.mode)
-        for k, v in self.extra_fields.items():
-            if hasattr(v, "to"):
-                v = v.to(device)
-            bbox.add_field(k, v)
-        return bbox
+    def to_cpu(self):
+        for k, v in vars(self).items():
+            if isinstance(v, torch.Tensor):
+                setattr(self, k, v.cpu())
 
     def __getitem__(self, item):
-        bbox = BoxList(self.bbox[item], self.size, self.mode)
-        for k, v in self.extra_fields.items():
-            bbox.add_field(k, v[item])
-        return bbox
+        # When to get a part of the box_list, itself should not be changed, so return a new box_list.
+        new_box_list = copy.deepcopy(self)  # use deepcopy just in case
+        for k, v in vars(new_box_list).items():
+            if k not in ('img_size', 'mode'):
+                if isinstance(v, torch.Tensor):
+                    setattr(new_box_list, k, v[item])
+                else:
+                    raise NotImplementedError('Index op for non-tensor attr has not been implemented.')
 
-    def __len__(self):
-        return self.bbox.shape[0]
+        # the ids of two objects may be the same because of their non-overlapping lifetime, use 'is' just in case.
+        assert new_box_list is not self
+        return new_box_list
 
     def clip_to_image(self, remove_empty=True):
         TO_REMOVE = 1
-        self.bbox[:, 0].clamp_(min=0, max=self.size[0] - TO_REMOVE)
-        self.bbox[:, 1].clamp_(min=0, max=self.size[1] - TO_REMOVE)
-        self.bbox[:, 2].clamp_(min=0, max=self.size[0] - TO_REMOVE)
-        self.bbox[:, 3].clamp_(min=0, max=self.size[1] - TO_REMOVE)
+        self.box[:, 0].clamp_(min=0, max=self.img_size[0] - TO_REMOVE)
+        self.box[:, 1].clamp_(min=0, max=self.img_size[1] - TO_REMOVE)
+        self.box[:, 2].clamp_(min=0, max=self.img_size[0] - TO_REMOVE)
+        self.box[:, 3].clamp_(min=0, max=self.img_size[1] - TO_REMOVE)
+
         if remove_empty:
-            box = self.bbox
-            keep = (box[:, 3] > box[:, 1]) & (box[:, 2] > box[:, 0])
-            return self[keep]
-        return self
+            keep = (self.box[:, 3] > self.box[:, 1]) & (self.box[:, 2] > self.box[:, 0])
+            self.box = self.box[keep]
+
+    def remove_small_box(self, min_size):
+        assert self.mode == 'x1y1x2y2', 'Incorrect mode when removing small boxes.'
+        ws, hs = (self.box[:, 2] - self.box[:, 0]), (self.box[:, 3] - self.box[:, 1])
+        keep = ((ws >= min_size) & (hs >= min_size)).nonzero().squeeze(1)
+        self.box = self.box[keep]
 
     def area(self):
-        box = self.bbox
-        if self.mode == "xyxy":
-            TO_REMOVE = 1
+        box = self.box
+        TO_REMOVE = 1
+        if self.mode == 'x1y1x2y2':
             area = (box[:, 2] - box[:, 0] + TO_REMOVE) * (box[:, 3] - box[:, 1] + TO_REMOVE)
-        elif self.mode == "xywh":
+        elif self.mode in ('x1y1wh', 'xcycwh'):
             area = box[:, 2] * box[:, 3]
         else:
-            raise RuntimeError("Should not be here")
+            raise ValueError('Unrecognized mode.')
 
         return area
 
-    def copy_with_fields(self, fields, skip_missing=False):
-        bbox = BoxList(self.bbox, self.size, self.mode)
-        if not isinstance(fields, (list, tuple)):
-            fields = [fields]
-        for field in fields:
-            if self.has_field(field):
-                bbox.add_field(field, self.get_field(field))
-            elif not skip_missing:
-                raise KeyError("Field '{}' not found in {}".format(field, self))
-        return bbox
-
     def __repr__(self):
-        s = self.__class__.__name__ + "("
-        s += "num_boxes={}, ".format(len(self))
-        s += "img_w={}, ".format(self.size[0])
-        s += "img_h={}, ".format(self.size[1])
-        s += "mode={})".format(self.mode)
-        return s
+        s = f'\nbox: shape: {self.box.shape}, dtype: {self.box.dtype}, device: {self.box.device}, ' \
+            f'grad: {self.box.requires_grad}'
+
+        for k, v in vars(self).items():
+            if k != 'box':
+                if isinstance(v, torch.Tensor):
+                    s += f'\n{k}: shape: {v.shape}, dtype: {v.dtype}, device: {v.device}, grad: {v.requires_grad}'
+                else:
+                    s += f'\n{k}: {v}'
+
+        return s + '\n'
 
 
-def boxlist_ml_nms(boxlist, nms_thresh, max_proposals=-1, score_field="scores", label_field="labels"):
-    """
-    Performs non-maximum suppression on a boxlist, with scores specified
-    in a boxlist field via score_field.
-
-    Arguments:
-        boxlist(BoxList)
-        nms_thresh (float)
-        max_proposals (int): if > 0, then only the top max_proposals are kept after non-maximum suppression
-        score_field (str)
-    """
+def boxlist_ml_nms(box_list, nms_thresh, max_proposals=-1):
     if nms_thresh <= 0:
-        return boxlist
+        return box_list
 
-    mode = boxlist.mode
-    boxlist = boxlist.convert("xyxy")
-    boxes = boxlist.bbox
-    scores = boxlist.get_field(score_field)
-    labels = boxlist.get_field(label_field)
-    keep = _C.ml_nms(boxes, scores, labels.float(), nms_thresh)
+    assert box_list.mode == 'x1y1x2y2', f'mode here should be x1y1x2y2, got {box_list.mode}, need to check the code.'
+    box, score, label = box_list.box, box_list.score, box_list.label
+    keep = _C.ml_nms(box, score, label.float(), nms_thresh)
 
     if max_proposals > 0:
         keep = keep[: max_proposals]
 
-    return boxlist[keep].convert(mode)
+    return box_list[keep]
 
 
 def boxlist_iou(boxlist1, boxlist2):
-    assert boxlist1.size == boxlist2.size, 'boxlists should have same image size'
-
     area1 = boxlist1.area()
     area2 = boxlist2.area()
 
-    box1, box2 = boxlist1.bbox, boxlist2.bbox
+    box1, box2 = boxlist1.box, boxlist2.box
 
     lt = torch.max(box1[:, None, :2], box2[:, :2])  # [N,M,2]
     rb = torch.min(box1[:, None, 2:], box2[:, 2:])  # [N,M,2]
@@ -268,53 +180,35 @@ def boxlist_iou(boxlist1, boxlist2):
     return iou
 
 
-# TODO redundant, remove
-def _cat(tensors, dim=0):
-    """
-    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
-    """
-    assert isinstance(tensors, (list, tuple))
-    if len(tensors) == 1:
-        return tensors[0]
-    return torch.cat(tensors, dim)
+def cat_boxlist(box_list_fpn):
+    # Concatenates a list of BoxList (having the same image size) into a single BoxList
+    assert isinstance(box_list_fpn, (list, tuple))
+    assert all(isinstance(bbox, BoxList) for bbox in box_list_fpn)
 
+    img_size = box_list_fpn[0].img_size
+    assert all(bbox.img_size == img_size for bbox in box_list_fpn)
 
-def cat_boxlist(bboxes):
-    """
-    Concatenates a list of BoxList (having the same image size) into a single BoxList
-    """
-    assert isinstance(bboxes, (list, tuple))
-    assert all(isinstance(bbox, BoxList) for bbox in bboxes)
+    mode = box_list_fpn[0].mode
+    assert all(bbox.mode == mode for bbox in box_list_fpn)
 
-    size = bboxes[0].size
-    assert all(bbox.size == size for bbox in bboxes)
+    attr = list(vars(box_list_fpn[0]).keys())
+    assert all([list(vars(bbox).keys()) == attr for bbox in box_list_fpn])
 
-    mode = bboxes[0].mode
-    assert all(bbox.mode == mode for bbox in bboxes)
+    kwargs = {}
+    for k in attr:
+        if k == 'box':
+            cat_box = torch.cat([getattr(box_list, k) for box_list in box_list_fpn], dim=0)
+        elif k in ('mode', 'img_size'):
+            pass
+        else:
+            aa = []
+            for box_list in box_list_fpn:
+                v = getattr(box_list, k)
+                if isinstance(v, torch.Tensor):
+                    aa.append(v)
+                else:
+                    raise NotImplementedError('Cat op for Non-tensor attr has not been implemented.')
 
-    fields = set(bboxes[0].fields())
-    assert all(set(bbox.fields()) == fields for bbox in bboxes)
+            kwargs[k] = torch.cat(aa, dim=0)
 
-    cat_boxes = BoxList(_cat([bbox.bbox for bbox in bboxes], dim=0), size, mode)
-
-    for field in fields:
-        data = _cat([bbox.get_field(field) for bbox in bboxes], dim=0)
-        cat_boxes.add_field(field, data)
-
-    return cat_boxes
-
-
-class ImageList:
-    def __init__(self, tensors, image_sizes):
-        self.tensors = tensors
-        self.ori_sizes = image_sizes
-
-    def to(self, *args, **kwargs):
-        cast_tensor = self.tensors.to(*args, **kwargs)
-        return ImageList(cast_tensor, self.ori_sizes)
-
-    def __repr__(self):
-        bs, size, dtype = len(self.tensors), self.tensors[0].shape, self.tensors[0].dtype
-        s = f'tensors:\nbs: {bs}, size: {size}, dtype: {dtype}\n'
-        s += f'ori_sizes:\n{self.ori_sizes}'
-        return s
+    return BoxList(cat_box, img_size, mode, **kwargs)

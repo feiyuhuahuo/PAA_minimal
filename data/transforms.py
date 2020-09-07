@@ -1,96 +1,84 @@
 import random
+import math
 from torchvision.transforms import functional as F
+from utils.box_list import BoxList
 
 
-class Compose(object):
-    def __init__(self, transforms):
-        self.transforms = transforms
+def resize(img_list, box_list=None, min_size=None, max_size=None):
+    if isinstance(min_size, int):
+        size = min_size
+    elif isinstance(min_size, tuple):
+        size = random.randint(min_size[0], min_size[1])
+    else:
+        raise TypeError(f'The type of min_size_train shoule be int or tuple, got {type(min_size)}')
 
-    def __call__(self, image, target):
-        for t in self.transforms:
-            image, target = t(image, target)
-        return image, target
+    assert img_list.img.size == img_list.ori_size, 'img size error when resizing.'
+    w, h = img_list.ori_size
 
-    def __repr__(self):
-        format_string = self.__class__.__name__ + "("
-        for t in self.transforms:
-            format_string += "\n"
-            format_string += "    {0}".format(t)
-        format_string += "\n)"
-        return format_string
+    if max_size is not None:
+        min_original_size = float(min((w, h)))
+        max_original_size = float(max((w, h)))
+        if max_original_size / min_original_size * size > max_size:
+            size = int(round(max_size * min_original_size / max_original_size))
 
-
-class Resize(object):
-    def __init__(self, min_size, max_size):
-        if not isinstance(min_size, (list, tuple)):
-            min_size = (min_size,)
-        self.min_size = min_size
-        self.max_size = max_size
-
-    # modified from torchvision to add support for max size
-    def get_size(self, image_size):
-        w, h = image_size
-        size = random.choice(self.min_size)
-        max_size = self.max_size
-        if max_size is not None:
-            min_original_size = float(min((w, h)))
-            max_original_size = float(max((w, h)))
-            if max_original_size / min_original_size * size > max_size:
-                size = int(round(max_size * min_original_size / max_original_size))
-
-        if (w <= h and w == size) or (h <= w and h == size):
-            return (h, w)
-
+    if (w <= h and w == size) or (h <= w and h == size):
+        resize_h = h, resize_w = w
+    else:
         if w < h:
-            ow = size
-            oh = int(size * h / w)
+            resize_w = size
+            resize_h = int(size * h / w)
         else:
-            oh = size
-            ow = int(size * w / h)
+            resize_h = size
+            resize_w = int(size * w / h)
 
-        return (oh, ow)
+    resized_img = F.resize(img_list.img, (resize_h, resize_w))
+    img_list.img = resized_img
+    img_list.resized_size = (resize_w, resize_h)
 
-    def __call__(self, image, target=None):
-        size = self.get_size(image.size)
-        image = F.resize(image, size)
-        if isinstance(target, list):
-            target = [t.resize(image.size) for t in target]
-        elif target is None:
-            return image
-        else:
-            target = target.resize(image.size)
-        return image, target
+    if box_list is None:
+        return img_list
+    else:
+        assert isinstance(box_list, BoxList), f'target error, should be a Boxlist, got a {type(box_list)}.'
+        box_list.resize(new_size=(resize_w, resize_h))
 
-
-class RandomHorizontalFlip(object):
-    def __init__(self, prob=0.5):
-        self.prob = prob
-
-    def __call__(self, image, target):
-        if random.random() < self.prob:
-            image = F.hflip(image)
-            target = target.transpose(0)
-        return image, target
+    return img_list, box_list
 
 
-class ToTensor(object):
-    def __call__(self, image, target):
-        return F.to_tensor(image), target
+def random_flip(img_list, box_list, h_prob=0.5, v_prob=None):
+    if h_prob and random.random() < h_prob:
+        new_img = F.hflip(img_list.img)
+        img_list.img = new_img
+        assert img_list.resized_size == box_list.img_size, 'img size != box size when flipping.'
+        box_list.box_flip(method='h_flip')
+    if v_prob and random.random() < v_prob:
+        pass  # TODO: maybe need vertical flip here
+
+    return img_list, box_list
 
 
-class Normalize(object):
-    def __init__(self, mean, std, to_bgr255=True):
-        self.mean = mean
-        self.std = std
-        self.to_bgr255 = to_bgr255
+def to_tensor(img_list):
+    new_img = F.to_tensor(img_list.img)
+    img_list.img = new_img
+    return img_list
 
-    def __call__(self, image, target=None):
-        if self.to_bgr255:
-            image = image[[2, 1, 0]] * 255
 
-        image = F.normalize(image, mean=self.mean, std=self.std)
+def normalize(img_list, mean=(102.9801, 115.9465, 122.7717), std=(1., 1., 1.)):
+    new_img = img_list.img[[2, 1, 0]] * 255  # to BGR, 255
+    new_img = F.normalize(new_img, mean=mean, std=std)
+    img_list.img = new_img
+    return img_list
 
-        if target is None:
-            return image
 
-        return image, target
+def train_aug(img_list, box_list, cfg):
+    img_list, box_list = resize(img_list, box_list, min_size=cfg.min_size_train, max_size=cfg.max_size_train)
+    img_list, box_list = random_flip(img_list, box_list, h_prob=0.5)
+    img_list = to_tensor(img_list)
+    img_list = normalize(img_list)
+    return img_list, box_list
+
+
+def val_aug(img_list, box_list, cfg):
+    img_list = resize(img_list, box_list=None, min_size=cfg.min_size_test, max_size=cfg.max_size_test)
+    img_list = to_tensor(img_list)
+    img_list = normalize(img_list)
+    return img_list, None
