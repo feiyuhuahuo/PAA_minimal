@@ -1,6 +1,5 @@
 import torch
 import math
-from utils.box_list import cat_boxlist
 import pdb
 
 
@@ -19,7 +18,7 @@ def permute_and_flatten(layer, N, A, C, H, W):
     return layer
 
 
-def concat_fpn_pred(c_pred, box_pred, iou_pred, anchors):
+def concat_fpn_pred(c_pred, box_pred, iou_pred, anchor_cat):
     bs = c_pred[0].shape[0]
     c_all_level, box_all_level = [], []
 
@@ -39,8 +38,7 @@ def concat_fpn_pred(c_pred, box_pred, iou_pred, anchors):
 
     iou_pred_flatten = [aa.permute(0, 2, 3, 1).reshape(bs, -1, 1) for aa in iou_pred]
     iou_pred_flatten = torch.cat(iou_pred_flatten, dim=1).reshape(-1)
-
-    anchor_flatten = torch.cat([cat_boxlist(anchor_per_img).box for anchor_per_img in anchors], dim=0)
+    anchor_flatten = torch.cat([anchor_cat.box] * bs, dim=0)
 
     return c_flatten, box_flatten, iou_pred_flatten, anchor_flatten
 

@@ -179,18 +179,21 @@ class custom_DP(nn.DataParallel):
         self.alloc = alloc
 
     # If using only one GPU, gather() will not be entered, but scatter() will be.
-    def scatter(self, inputs, kwargs, device_ids):
+    def scatter(self, inputs, kwargs, device_ids):  # kwargs is {}
         devices = ['cuda:' + str(x) for x in device_ids]
-        pdb.set_trace()
         i = 0
         splits = []
-        imgs, gt_box, gt_category, debug_img = inputs
+        img_list_batch, box_list_batch = inputs
+
         for gpu, bs in zip(devices, self.alloc):
             one_device = []
-            one_device.append(imgs[i: i + bs].detach().to(gpu))
-            one_device.append([box.detach().to(gpu) for box in gt_box[i: i + bs]])
-            one_device.append([category.detach().to(gpu) for category in gt_category[i: i + bs]])
-            one_device.append(debug_img[i: i + bs])
+            one_device.append(img_list_batch[i: i + bs].detach().to(gpu))
+
+            box_list_per_gpu = box_list_batch[i: i + bs]
+            for box_list in box_list_per_gpu:
+                box_list.to_gpu(gpu)
+
+            one_device.append(box_list_per_gpu)
             i += bs
             splits.append(one_device)
 
@@ -198,6 +201,8 @@ class custom_DP(nn.DataParallel):
 
     @staticmethod
     def gather(outputs, output_device):
+        print('DP has not been completed, can only train on one GPU now.')
+        exit()
         box_loss = torch.stack([one_out[0].to(output_device) for one_out in outputs])
         category_loss = torch.stack([one_out[1].to(output_device) for one_out in outputs])
         c_p = torch.cat([one_out[2].to(output_device) for one_out in outputs], dim=0)

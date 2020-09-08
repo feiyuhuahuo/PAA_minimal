@@ -58,23 +58,22 @@ class PAALoss:
             assert losses.numel() != 0
             return losses
 
-    def prepare_initial_targets(self, targets):
+    def initial_preparation(self, box_list_batch):
         category_all, offset_all, index_all = [], [], []
-        anchors_per_img = cat_boxlist(self.anchors)
 
-        for targets_per_img in targets:
-            assert targets_per_img.mode == 'x1y1x2y2'
+        for box_list in box_list_batch:
+            assert box_list.mode == 'x1y1x2y2'
 
-            iou_matrix = boxlist_iou(targets_per_img, anchors_per_img)  # shape: (num_gt, num_anchor)
+            iou_matrix = boxlist_iou(box_list, self.anchor_cat)  # shape: (num_gt, num_anchor)
             # shape: (num_anchor,), record the matched gt index for each dt, -1 for background, -2 for ignored.
             matched_index = match(iou_matrix, self.cfg.match_iou_thre, self.cfg.match_iou_thre)
-            targets_per_img = copy.deepcopy(targets_per_img)
-            # '.clamp()' here to make index operation available, this won't affect 'category' and 'matched_index'
-            matched_targets = targets_per_img[matched_index.clamp(min=0)]
+            box_list = copy.deepcopy(box_list)
+            # '.clamp()' here to make index operation available, this won't affect 'matched_index'
+            box_list_matched = box_list[matched_index.clamp(min=0)]
 
-            offset = encode(matched_targets.box, anchors_per_img.box)
+            offset = encode(box_list_matched.box, self.anchor_cat.box)
 
-            category = matched_targets.get_field("labels").to(dtype=torch.float32)
+            category = box_list_matched.label
             category[matched_index == -1] = 0  # Background (negative examples)
             category[matched_index == -2] = -1  # ignore indices that are between thresholds
 
@@ -88,30 +87,28 @@ class PAALoss:
 
         return category_all, offset_all, index_all
 
-    def compute_paa(self, target_batch, c_init_batch, score_batch, index_init_batch):
-        bs = len(target_batch)
+    def compute_paa(self, box_list_batch, c_init_batch, score_batch, index_init_batch):
+        bs = len(box_list_batch)
         c_init_batch = c_init_batch.reshape(bs, -1)
         score_batch = score_batch.reshape(bs, -1)
         index_init_batch = index_init_batch.reshape(bs, -1)
-        anchor_cat = cat_boxlist(self.anchors)
         num_anchor_per_fpn = [len(anchor_per_fpn.box) for anchor_per_fpn in self.anchors]
         device = score_batch.device
 
         final_c_batch, final_offset_batch = [], []
-        for i in range(len(target_batch)):
-            target = target_batch[i]
-            assert target.mode == "x1y1x2y2", 'target mode incorrect'
+        for i in range(len(box_list_batch)):
+            box_list = box_list_batch[i]
+            assert box_list.mode == "x1y1x2y2", 'box_list mode is incorrect'
 
-            box_gt = target.box
-            c_gt = target.get_field("labels")
+            c_gt, box_gt = box_list.label, box_list.box
 
             c_init = c_init_batch[i]
             score = score_batch[i]
             index_init = index_init_batch[i]
             assert c_init.shape == index_init.shape
 
-            final_c = torch.zeros(anchor_cat.box.shape[0], dtype=torch.long).to(device)  # '0' represents background
-            final_box_gt = torch.zeros_like(anchor_cat.box)
+            final_c = torch.zeros(self.anchor_cat.box.shape[0], dtype=torch.long).to(device)  # '0' represents background
+            final_box_gt = torch.zeros_like(self.anchor_cat.box)
 
             for gt_i in range(box_gt.shape[0]):
                 candi_i_per_gt = []
@@ -169,7 +166,7 @@ class PAALoss:
                     final_box_gt[pos_i] = box_gt[gt_i].reshape(-1, 4)
 
             # 'neg_i' and 'pos_i' derives from 'candi_i_per_gt' derives from 'matched_i' derives from 'index_init'
-            final_offset = encode(final_box_gt, anchor_cat.box)
+            final_offset = encode(final_box_gt, self.anchor_cat.box)
 
             final_c_batch.append(final_c)
             final_offset_batch.append(final_offset)
@@ -189,14 +186,16 @@ class PAALoss:
         inter = wh[:, 0] * wh[:, 1]
         return inter / (area1 + area2 - inter)
 
-    def __call__(self, c_pred, box_pred, iou_pred, targets):
+    def __call__(self, c_pred, box_pred, iou_pred, box_list_batch):
         # c_init_batch: (bs * num_anchor,), 0 for background, -1 for ignored
         # offset_init_batch: (bs * num_anchor, 4)
         # index_init_batch: (bs * num_anchor,), -1 for bakground, -2 for ignored
-        c_init_batch, offset_init_batch, index_init_batch = self.prepare_initial_targets(targets)
+        self.anchor_cat = cat_boxlist(self.anchors)
+
+        c_init_batch, offset_init_batch, index_init_batch = self.initial_preparation(box_list_batch)
         pos_i_init = torch.nonzero(c_init_batch > 0).reshape(-1)
 
-        c_pred_f, box_pred_f, iou_pred_f, anchor_f = concat_fpn_pred(c_pred, box_pred, iou_pred, self.anchors)
+        c_pred_f, box_pred_f, iou_pred_f, anchor_f = concat_fpn_pred(c_pred, box_pred, iou_pred, self.anchor_cat)
 
         if pos_i_init.numel() > 0:
             with torch.no_grad():  # compute anchor scores (losses) for all anchors, gradient is not needed.
@@ -212,7 +211,8 @@ class PAALoss:
                 assert not torch.isnan(score_batch).any()  # all the elements should not be nan
 
             # compute labels and targets using PAA
-            final_c_batch, final_offset_batch = self.compute_paa(targets, c_init_batch, score_batch, index_init_batch)
+            final_c_batch, final_offset_batch = self.compute_paa(box_list_batch, c_init_batch, score_batch,
+                                                                 index_init_batch)
 
             pos_i_final = torch.nonzero(final_c_batch > 0).reshape(-1)
             num_pos = pos_i_final.numel()
@@ -229,12 +229,13 @@ class PAALoss:
             cls_loss = focal_loss_cuda(c_pred_f, final_c_batch.int(), self.cfg.fl_gamma, self.cfg.fl_alpha)
             box_loss = self.GIoULoss(box_pred_f, final_offset_batch, anchor_f, weight=iou_gt)
             box_loss = box_loss[final_c_batch[pos_i_final] > 0].reshape(-1)
-            iou_pred_loss = self.iou_bce_loss(iou_pred_f, iou_gt) / num_pos * self.cfg.iou_loss_w
+            iou_pred_loss = self.iou_bce_loss(iou_pred_f, iou_gt)
             iou_gt_sum = iou_gt.sum().item()
         else:
             box_loss = box_pred_f.sum()
 
         category_loss = cls_loss.sum() / num_pos
         box_loss = box_loss.sum() / iou_gt_sum * self.cfg.box_loss_w
+        iou_pred_loss = iou_pred_loss / num_pos * self.cfg.iou_loss_w
 
         return category_loss, box_loss, iou_pred_loss

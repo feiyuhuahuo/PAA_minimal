@@ -91,6 +91,12 @@ class BoxList:
             if isinstance(v, torch.Tensor):
                 setattr(self, k, v.cpu())
 
+    def to_gpu(self, gpu):
+        for k, v in vars(self).items():
+            if isinstance(v, torch.Tensor):
+                assert not v.requires_grad, 'Tensors that require grad can not be allocated.'
+                setattr(self, k, v.to(gpu))
+
     def __getitem__(self, item):
         # When to get a part of the box_list, itself should not be changed, so return a new box_list.
         new_box_list = copy.deepcopy(self)  # use deepcopy just in case
