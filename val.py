@@ -15,7 +15,7 @@ import pdb
 parser = argparse.ArgumentParser(description="PyTorch Object Detection Evaluation")
 parser.add_argument("--weight", type=str, default='weights/paa_res50.pth')
 parser.add_argument('--gpu_id', default='0', type=str, help='The GPUs to use.')
-parser.add_argument('--alloc', default='1', type=str, help='The batch size allocated to each GPU.')
+parser.add_argument('--test_bs', default='1', type=str, help='The batch size allocated to each GPU.')
 
 
 def compute_thre_per_class(coco_eval):
@@ -45,7 +45,7 @@ def compute_thre_per_class(coco_eval):
 def inference(model, cfg, during_train=False):
     model.eval()
     predictions, coco_results = {}, []
-    val_loader = make_data_loader(cfg)
+    val_loader = make_data_loader(cfg, val=True)
     dataset = val_loader.dataset
     dl = len(val_loader)
     bar = ProgressBar(length=40, max_val=dl)
@@ -88,15 +88,15 @@ def inference(model, cfg, during_train=False):
 
             aa = time.perf_counter()
             if i > 0:
+                batch_time = aa - temp
+                timer.add_batch_time(batch_time)
+
                 time_name = ['batch', 'data', 'forward', 'post_process', 'accumulate']
                 t_t, t_d, t_f, t_pp, t_acc = timer.get_times(time_name)
                 fps, t_fps = 1 / (t_d + t_f + t_pp), 1 / t_t
                 bar_str = bar.get_bar(i + 1)
                 print(f'\rTesting: {bar_str} {i + 1}/{dl}, fps: {fps:.2f} | total fps: {t_fps:.2f} | t_t: {t_t:.3f} | '
                       f't_d: {t_d:.3f} | t_f: {t_f:.3f} | t_pp: {t_pp:.3f} | t_acc: {t_acc:.3f}', end='')
-
-                batch_time = aa - temp
-                timer.add_batch_time(batch_time)
 
             temp = aa
 

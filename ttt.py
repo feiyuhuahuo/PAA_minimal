@@ -20,14 +20,15 @@ import pdb
 #
 # torch.save(bb, 'paa_res10111.pth')
 
-class B:
-    def ba(self):
-        pass
+import os
+import argparse
+import pdb
+import torch.distributed
 
-    def bb(self):
-        pass
+parser = argparse.ArgumentParser(description="PyTorch Object Detection Training")
+parser.add_argument('--local_rank', type=int)
+args = parser.parse_args()
 
-
-b = B()
-print(b.ba is b.bb)  # False
-print(id(b.ba) == id(b.bb))  # True
+torch.cuda.set_device(args.local_rank)
+torch.distributed.init_process_group(backend="nccl", init_method="env://")
+print(torch.distributed.get_rank())

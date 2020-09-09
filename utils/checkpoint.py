@@ -11,6 +11,7 @@ class Checkpointer:
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.c2_stage_names = {"res50": ["1.2", "2.3", "3.5", "4.2"], "res101": ["1.2", "2.3", "3.22", "4.2"]}
+        self.ckpt_iter = self.load()
 
     @staticmethod
     def rename_basic_resnet_weights(layer_keys):
@@ -169,7 +170,7 @@ class Checkpointer:
             ckpt = torch.load(self.cfg.resume)
             assert 'model' in ckpt and 'optimizer' in ckpt and 'scheduler' in ckpt, 'ckpt error.'
             self.model.load_state_dict(ckpt['model'], strict=True)
-            self.optimizeroad_state_dict(ckpt['optimizer'])
+            self.optimizer.load_state_dict(ckpt['optimizer'])
             self.scheduler.load_state_dict(ckpt['scheduler'])
             return ckpt['iteration']
         else:

@@ -1,5 +1,6 @@
 import os
 import torch
+import torch.distributed as dist
 
 os.makedirs('results/', exist_ok=True)
 os.makedirs('weights/', exist_ok=True)
@@ -102,26 +103,23 @@ class res101_dcn_2x_cfg(res50_1x_cfg):
 
 
 def get_config(args, val_mode=False):
-    gpu_id = [int(aa.strip()) for aa in args.gpu_id.split(',')]
-    alloc = [int(aa.strip()) for aa in args.alloc.split(',')]
-
-    assert len(set(gpu_id)) == len(gpu_id), 'Error, repetitive GPU number.'
-    assert len(gpu_id) == len(alloc), 'Error, gpu_id num != alloc num.'
-    # CUDA environment variable setting must be in front of any other code which is related to GPU operation,
-    # or it will not work.
-    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
-    assert torch.cuda.device_count() == len(gpu_id), 'Error, device count does not match with args.gpu_id'
-
-    args.gpu_id = gpu_id
-    args.alloc = alloc
-
     if val_mode:
-        args.test_bs = sum(alloc)
-        assert len(gpu_id) == 1, f'In val mode, only one GPU can be used, got {len(gpu_id)}.'
+        gpu_id = [int(aa.strip()) for aa in args.gpu_id.split(',')]
+        assert len(gpu_id) == 1, f'Only one GPU can be used in val mode, got {len(gpu_id)}.'
     else:
-        args.train_bs = sum(alloc)
+        torch.cuda.set_device(args.local_rank)
+        dist.init_process_group(backend="nccl", init_method="env://")
+
+        # Only launch this script by torch.distributed.launch, 'WORLD_SIZE' can be add to environment variables.
+        num_gpus = int(os.environ["WORLD_SIZE"])
+        assert args.train_bs % num_gpus == 0, 'Training batch size must be divisible by GPU number.'
+        args.bs_per_gpu = int(args.train_bs / num_gpus)
 
     cfg = res50_1x_cfg(vars(args), val_mode)  # change the desired config here
-    cfg.print_cfg()
+
+    if val_mode:
+        cfg.print_cfg()
+    elif dist.get_rank() == 0:
+        cfg.print_cfg()
 
     return cfg

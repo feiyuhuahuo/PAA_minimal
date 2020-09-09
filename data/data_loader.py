@@ -5,6 +5,7 @@ import math
 import itertools
 import torch
 import torch.nn as nn
+import torch.distributed as dist
 import pdb
 
 
@@ -144,15 +145,16 @@ class BatchCollator:
         return img_list_batch, box_list_batch
 
 
-def make_data_loader(cfg, start_iter=0):
-    dataset = COCODataset(cfg)
+def make_data_loader(cfg, start_iter=0, val=False):
+    dataset = COCODataset(cfg, val)
 
-    if hasattr(cfg, 'train_bs'):
-        batch_size = cfg.train_bs
-        sampler = data.sampler.RandomSampler(dataset)
+    if not val:
+        num_gpus = dist.get_world_size()
+        batch_size = int(cfg.train_bs / num_gpus)
+        sampler = data.distributed.DistributedSampler(dataset)
         num_iters = cfg.max_iter
     else:
-        batch_size = cfg.test_bs
+        batch_size = int(cfg.test_bs)
         sampler = data.sampler.SequentialSampler(dataset)
         num_iters = None
 
