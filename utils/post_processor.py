@@ -94,10 +94,11 @@ def post_process(cfg, c_batch, box_batch, iou_batch, anchors, resized_size):
             anchor_selected = anchor_selected.cuda()
 
             box_decoded = decode(box_selected, anchor_selected)
-            boxlist = BoxList(box_decoded, size, mode='x1y1x2y2', label=candi_i[:, 1] + 1, score=score)
 
+            boxlist = BoxList(box_decoded, size, mode='x1y1x2y2', label=candi_i[:, 1] + 1, score=score)
             boxlist.clip_to_image(remove_empty=False)
             boxlist.remove_small_box(min_size=0)
+
             results.append(boxlist)
 
         total_boxes.append(results)

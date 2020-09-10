@@ -5,11 +5,10 @@ import pdb
 
 
 class Checkpointer:
-    def __init__(self, cfg, model, optimizer=None, scheduler=None):
+    def __init__(self, cfg, model, optimizer=None):
         self.cfg = cfg
         self.model = model
         self.optimizer = optimizer
-        self.scheduler = scheduler
         self.c2_stage_names = {"res50": ["1.2", "2.3", "3.5", "4.2"], "res101": ["1.2", "2.3", "3.22", "4.2"]}
         self.ckpt_iter = self.load()
 
@@ -130,9 +129,7 @@ class Checkpointer:
 
     @staticmethod
     def align_load(model, loaded_state_dict):
-        """
-        align the model state_dict() and the pretrained weight's state_dict(), then load it.
-        """
+        # align the model state_dict() and the pretrained weight's state_dict(), then load it.
         model_state_dict = model.state_dict()
 
         current_keys = sorted(list(model_state_dict.keys()))
@@ -155,9 +152,8 @@ class Checkpointer:
         model.load_state_dict(model_state_dict)
 
     def save(self, cur_iter):
-        state_dict = {'model': self.model.state_dict(),
+        state_dict = {'model': self.model.module.state_dict(),
                       'optimizer': self.optimizer.state_dict(),
-                      'scheduler': self.scheduler.state_dict(),
                       'iteration': cur_iter}
 
         save_file = f'weights/{self.cfg.backbone}_{cur_iter}.pth'
@@ -171,7 +167,6 @@ class Checkpointer:
             assert 'model' in ckpt and 'optimizer' in ckpt and 'scheduler' in ckpt, 'ckpt error.'
             self.model.load_state_dict(ckpt['model'], strict=True)
             self.optimizer.load_state_dict(ckpt['optimizer'])
-            self.scheduler.load_state_dict(ckpt['scheduler'])
             return ckpt['iteration']
         else:
             print(f'Initialize training from {self.cfg.weight}.')

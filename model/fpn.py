@@ -1,6 +1,6 @@
 import torch.nn.functional as F
 from torch import nn
-from modeling.layers import Conv2d
+from model.layers import Conv2d
 
 
 class FPN(nn.Module):

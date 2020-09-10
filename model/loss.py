@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from utils.utils import concat_fpn_pred, encode, decode, match
-from modeling.sigmoid_focal_loss import focal_loss_cuda
+from model.sigmoid_focal_loss import focal_loss_cuda
 from utils.box_list import boxlist_iou, cat_boxlist
 import sklearn.mixture as skm
 import pdb

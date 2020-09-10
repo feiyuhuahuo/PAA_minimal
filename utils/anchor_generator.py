@@ -38,7 +38,6 @@ class AnchorGenerator:
         self.cell_anchors = BufferList(cell_anchors)
 
     def __call__(self, feature_maps):
-        device = feature_maps[0].device
         grid_sizes = [feature_map.shape[-2:] for feature_map in feature_maps]
 
         anchor_list = []
@@ -53,7 +52,7 @@ class AnchorGenerator:
 
             anchor = (shifts.reshape(-1, 1, 4) + base_anchors.reshape(1, -1, 4)).reshape(-1, 4)
             one_list = BoxList(anchor, img_size=None, mode='x1y1x2y2')
-            one_list.to_gpu(device)
+            one_list.to_cuda()
 
             anchor_list.append(one_list)
 

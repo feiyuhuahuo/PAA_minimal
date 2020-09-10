@@ -56,7 +56,7 @@ class res50_1x_cfg:
             self.weight_decay = 0.0001
             self.momentum = 0.9
             self.warmup_factor = 1 / 3
-            self.warmup_iters = 500  # TODO: this parameter seems useless
+            self.warmup_iters = 500
         self.freeze_backbone_at = 2
         self.fpn_topk = 9
         self.match_iou_thre = 0.1
@@ -66,7 +66,8 @@ class res50_1x_cfg:
         print()
         print('-' * 30 + self.__class__.__name__ + '-' * 30)
         for k, v in vars(self).items():
-            print(f'{k}: {v}')
+            if k != 'local_rank':
+                print(f'{k}: {v}')
         print()
 
 

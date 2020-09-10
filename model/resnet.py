@@ -1,7 +1,7 @@
 from collections import namedtuple
 import torch.nn.functional as F
 from torch import nn
-from modeling.layers import Conv2d, DFConv2d, FrozenBatchNorm2d
+from model.layers import Conv2d, DFConv2d, FrozenBatchNorm2d
 import pdb
 
 # ResNet stage specification

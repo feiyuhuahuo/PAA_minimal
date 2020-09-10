@@ -4,7 +4,7 @@ import torch
 import numpy as np
 from config import get_config
 from data.data_loader import make_data_loader
-from modeling.paa import PAA
+from model.paa import PAA
 from utils.utils import ProgressBar
 from utils.post_processor import post_process
 import json

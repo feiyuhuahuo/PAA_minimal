@@ -51,7 +51,7 @@ def random_flip(img_list, box_list, h_prob=0.5, v_prob=None):
         assert img_list.resized_size == box_list.img_size, 'img size != box size when flipping.'
         box_list.box_flip(method='h_flip')
     if v_prob and random.random() < v_prob:
-        pass  # TODO: maybe need vertical flip here
+        raise NotImplementedError('Vertical flip has not been implemented.')
 
     return img_list, box_list
 

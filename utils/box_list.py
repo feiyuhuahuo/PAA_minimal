@@ -91,12 +91,6 @@ class BoxList:
             if isinstance(v, torch.Tensor):
                 setattr(self, k, v.cpu())
 
-    def to_gpu(self, gpu):
-        for k, v in vars(self).items():
-            if isinstance(v, torch.Tensor):
-                assert not v.requires_grad, 'Tensors that require grad can not be allocated.'
-                setattr(self, k, v.to(gpu))
-
     def to_cuda(self):
         for k, v in vars(self).items():
             if isinstance(v, torch.Tensor):

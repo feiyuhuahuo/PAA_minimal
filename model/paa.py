@@ -2,18 +2,18 @@ import torch.nn as nn
 import math
 import torch
 from collections import OrderedDict
-from modeling import fpn as fpn_module
-from modeling import resnet
-from modeling.loss import PAALoss
+from model import fpn as fpn_module
+from model import resnet
+from model.loss import PAALoss
 from utils.anchor_generator import AnchorGenerator
-from modeling.layers import DFConv2d
+from model.layers import DFConv2d
 import pdb
 
 
-class Scale(nn.Module):  # TODO: figure out the useage
+class Scale(nn.Module):
     def __init__(self, init_value=1.0):
         super().__init__()
-        self.scale = nn.Parameter(torch.FloatTensor([init_value]))
+        self.scale = nn.Parameter(torch.tensor([init_value], dtype=torch.float32))
 
     def forward(self, input):
         return input * self.scale
