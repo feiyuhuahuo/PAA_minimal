@@ -149,7 +149,7 @@ class Checkpointer:
             key_old = loaded_keys[idx_old]
             model_state_dict[key] = loaded_state_dict[key_old]
 
-        model.load_state_dict(model_state_dict)
+        model.load_state_dict(model_state_dict, strict=True)
 
     def save(self, cur_iter):
         state_dict = {'model': self.model.module.state_dict(),

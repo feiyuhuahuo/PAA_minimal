@@ -150,21 +150,54 @@ class ProgressBar:
         return self.string
 
 
-def make_optimizer(cfg, model):
-    params = []
-    bias_lr_factor = 2  # implicit hyper-parameters
-    bias_weight_decay = 0
+class Optimizer:
+    def __init__(self, model, cfg):
+        self.cfg = cfg
+        self.init_lr_group = []
+        self.lr_milestones = None
+        self.bias_lr_factor = 2  # implicit hyper-parameters
+        self.bias_weight_decay = 0
+        self.lr_miles = [cfg.warmup_iters] + list(cfg.decay_steps)
 
-    for key, value in model.named_parameters():
-        if not value.requires_grad:
-            continue
+        params = []
+        for key, value in model.named_parameters():
+            if not value.requires_grad:
+                continue
 
-        lr, weight_decay = cfg.base_lr, cfg.weight_decay
+            lr, weight_decay = cfg.base_lr, cfg.weight_decay
 
-        if "bias" in key:
-            lr *= bias_lr_factor
-            weight_decay = bias_weight_decay
+            if "bias" in key:
+                lr *= self.bias_lr_factor
+                weight_decay = self.bias_weight_decay
 
-        params += [{"params": [value], "lr": lr, "weight_decay": weight_decay}]
+            params += [{"params": [value], "lr": lr, "weight_decay": weight_decay}]
 
-    return torch.optim.SGD(params, lr, momentum=cfg.momentum)
+        self.optimizer = torch.optim.SGD(params, lr, momentum=cfg.momentum)
+
+        for param_group in self.optimizer.param_groups:
+            self.init_lr_group.append(param_group['lr'])
+
+    def update_lr(self, step):
+        if (0 <= step < self.lr_miles[0]) and (self.lr_milestones is None):
+            for param_group, lr in zip(self.optimizer.param_groups, self.init_lr_group):
+                param_group['lr'] = self.cfg.warmup_factor * lr
+
+            self.lr_milestones = 'warmup'
+
+        if (self.lr_miles[0] <= step < self.lr_miles[1]) and (self.lr_milestones == 'warmup'):
+            for param_group, lr in zip(self.optimizer.param_groups, self.init_lr_group):
+                param_group['lr'] = lr
+
+            self.lr_milestones = 'beginning'
+
+        if (self.lr_miles[1] <= step < self.lr_miles[2]) and (self.lr_milestones == 'beginning'):
+            for param_group, lr in zip(self.optimizer.param_groups, self.init_lr_group):
+                param_group['lr'] = lr * 0.1
+
+            self.lr_milestones = 'decay_0'
+
+        if (self.lr_miles[2] <= step) and (self.lr_milestones == 'decay_0'):
+            for param_group, lr in zip(self.optimizer.param_groups, self.init_lr_group):
+                param_group['lr'] = lr * 0.1 * 0.1
+
+            self.lr_milestones = 'decay_1'

@@ -13,8 +13,8 @@ class res50_1x_cfg:
 
         data_root = '/home/feiyu/Data/coco2017/'
         if not val_mode:
-            self.train_imgs = data_root + 'val2017/'
-            self.train_ann = data_root + 'annotations/instances_val2017.json'
+            self.train_imgs = data_root + 'train2017/'
+            self.train_ann = data_root + 'annotations/instances_train2017.json'
         self.val_imgs = data_root + 'val2017/'
         self.val_ann = data_root + 'annotations/instances_val2017.json'
         self.num_classes = 81
