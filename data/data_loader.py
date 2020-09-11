@@ -4,7 +4,6 @@ from data.coco import COCODataset
 import math
 import itertools
 import torch
-import torch.nn as nn
 import torch.distributed as dist
 import pdb
 
@@ -151,7 +150,7 @@ def make_data_loader(cfg, start_iter=0, val=False):
     if not val:
         num_gpus = dist.get_world_size()
         batch_size = int(cfg.train_bs / num_gpus)
-        sampler = data.distributed.DistributedSampler(dataset)
+        sampler = data.distributed.DistributedSampler(dataset, shuffle=True)
         num_iters = cfg.max_iter
     else:
         batch_size = int(cfg.test_bs)
@@ -173,39 +172,3 @@ def make_data_loader(cfg, start_iter=0, val=False):
         batch_sampler = iteration_sampler(batch_sampler, num_iters, start_iter)
 
     return data.DataLoader(dataset, num_workers=6, batch_sampler=batch_sampler, collate_fn=BatchCollator())
-
-
-class custom_DP(nn.DataParallel):
-    def __init__(self, module, alloc):
-        super().__init__(module)
-        self.alloc = alloc
-
-    # If using only one GPU, gather() will not be entered, but scatter() will be.
-    def scatter(self, inputs, kwargs, device_ids):  # kwargs is {}
-        devices = ['cuda:' + str(x) for x in device_ids]
-        i = 0
-        splits = []
-        img_list_batch, box_list_batch = inputs
-
-        for gpu, bs in zip(devices, self.alloc):
-            one_device = []
-            one_device.append(img_list_batch[i: i + bs].detach().to(gpu))
-
-            box_list_per_gpu = box_list_batch[i: i + bs]
-            for box_list in box_list_per_gpu:
-                box_list.to_gpu(gpu)
-
-            one_device.append(box_list_per_gpu)
-            i += bs
-            splits.append(one_device)
-
-        return splits, [kwargs] * len(devices)
-
-    @staticmethod
-    def gather(outputs, output_device):
-        print('DP has not been completed, can only train on one GPU now.')
-        exit()
-        box_loss = torch.stack([one_out[0].to(output_device) for one_out in outputs])
-        category_loss = torch.stack([one_out[1].to(output_device) for one_out in outputs])
-        c_p = torch.cat([one_out[2].to(output_device) for one_out in outputs], dim=0)
-        return box_loss, category_loss, c_p
