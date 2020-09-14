@@ -10,7 +10,7 @@ class Checkpointer:
         self.model = model
         self.optimizer = optimizer
         self.c2_stage_names = {"res50": ["1.2", "2.3", "3.5", "4.2"], "res101": ["1.2", "2.3", "3.22", "4.2"]}
-        self.ckpt_iter = self.load()
+        self.load()
 
     @staticmethod
     def rename_basic_resnet_weights(layer_keys):
@@ -115,7 +115,7 @@ class Checkpointer:
                 for param in ["weight", "bias"]:
                     if old_key.find(param) is -1:
                         continue
-                    new_key = old_key.replace("conv2.{}".format(param), "conv2.conv.{}".format(param))
+                    new_key = old_key.replace(f"conv2.{param}", f"conv2.conv.{param}")
                     state_dict[new_key] = state_dict[old_key]
                     del state_dict[old_key]
         return state_dict
@@ -152,27 +152,18 @@ class Checkpointer:
         model.load_state_dict(model_state_dict, strict=True)
 
     def save(self, cur_iter):
-        state_dict = {'model': self.model.module.state_dict(),
-                      'optimizer': self.optimizer.state_dict(),
-                      'iteration': cur_iter}
-
         save_file = f'weights/{self.cfg.backbone}_{cur_iter}.pth'
         print(f'Saving checkpoint to {save_file}')
-        torch.save(state_dict, save_file)
+        torch.save(self.model.state_dict(), save_file)
 
     def load(self):
         if self.cfg.resume is not None:
             print(f'Resume training from {self.cfg.resume}.')
-            ckpt = torch.load(self.cfg.resume)
-            assert 'model' in ckpt and 'optimizer' in ckpt and 'scheduler' in ckpt, 'ckpt error.'
-            self.model.load_state_dict(ckpt['model'], strict=True)
-            self.optimizer.load_state_dict(ckpt['optimizer'])
-            return ckpt['iteration']
+            self.model.load_state_dict(torch.load(self.cfg.resume), strict=True)
         else:
             print(f'Initialize training from {self.cfg.weight}.')
             ckpt = self.load_resnet_c2_format(self.cfg.weight)
             self.align_load(self.model, ckpt['model'])
-            return 0
 
 # https://dl.fbaipublicfiles.com/detectron/ImageNetPretrained/MSRA/R-50.pkl
 # https://dl.fbaipublicfiles.com/detectron/ImageNetPretrained/47261647/R-50-GN.pkl

@@ -111,6 +111,7 @@ class iteration_sampler:
                 iteration += 1
                 if iteration > self.num_iters:
                     break
+
                 yield batch
 
     def __len__(self):
@@ -171,4 +172,4 @@ def make_data_loader(cfg, start_iter=0, val=False):
     if num_iters is not None:
         batch_sampler = iteration_sampler(batch_sampler, num_iters, start_iter)
 
-    return data.DataLoader(dataset, num_workers=6, batch_sampler=batch_sampler, collate_fn=BatchCollator())
+    return data.DataLoader(dataset, num_workers=8, batch_sampler=batch_sampler, collate_fn=BatchCollator())

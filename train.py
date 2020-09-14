@@ -14,10 +14,12 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from utils import timer
 import pdb
 
-parser = argparse.ArgumentParser(description="PyTorch Object Detection Training")
+parser = argparse.ArgumentParser(description='PAA_Minimal Training')
 parser.add_argument('--local_rank', type=int)
 parser.add_argument('--train_bs', type=int, default=4, help='total training batch size')
 parser.add_argument('--test_bs', type=int, default=1, help='-1 to disable val')
+parser.add_argument('--val_interval', type=int, default=4000, help='validation interval during training')
+parser.add_argument('--resume', type=str, default=None, help='the weight for resume training')
 args = parser.parse_args()
 cfg = get_config(args)
 
@@ -30,15 +32,15 @@ model = DDP(model, device_ids=[cfg.local_rank], output_device=cfg.local_rank, br
 
 optim = Optimizer(model, cfg)
 checkpointer = Checkpointer(cfg, model.module, optim.optimizer)
-ckpt_iter = checkpointer.ckpt_iter
-data_loader = make_data_loader(cfg, start_iter=ckpt_iter)
+start_iter = int(cfg.resume.split('_')[-1].split('.')[0]) if cfg.resume else 0
+data_loader = make_data_loader(cfg, start_iter=start_iter)
 max_iter = len(data_loader)
 timer.init()
 main_gpu = dist.get_rank() == 0
 num_gpu = dist.get_world_size()
 
-for i, (img_list_batch, box_list_batch) in enumerate(data_loader, ckpt_iter):
-    if i > 0:
+for i, (img_list_batch, box_list_batch) in enumerate(data_loader, start_iter):
+    if i > start_iter:
         timer.start()
 
     optim.update_lr(step=i)
@@ -66,12 +68,12 @@ for i, (img_list_batch, box_list_batch) in enumerate(data_loader, ckpt_iter):
         optim.optimizer.step()
 
     time_this = time.perf_counter()
-    if i > ckpt_iter:
+    if i > start_iter:
         batch_time = time_this - time_last
         timer.add_batch_time(batch_time)
     time_last = time_this
 
-    if i > ckpt_iter and i % 20 == 0 and main_gpu:
+    if i > start_iter and i % 20 == 0 and main_gpu:
         cur_lr = optim.optimizer.param_groups[0]['lr']
         time_name = ['batch', 'data', 'for+loss', 'backward', 'update']
         t_t, t_d, t_fl, t_b, t_u = timer.get_times(time_name)
@@ -81,8 +83,9 @@ for i, (img_list_batch, box_list_batch) in enumerate(data_loader, ckpt_iter):
         print(f'step: {i} | lr: {cur_lr:.2e} | l_class: {l_c:.3f} | l_box: {l_b:.3f} | l_iou: {l_iou:.3f} | '
               f't_t: {t_t:.3f} | t_d: {t_d:.3f} | t_fl: {t_fl:.3f} | t_b: {t_b:.3f} | t_u: {t_u:.3f} | ETA: {eta}')
 
-    if i > ckpt_iter and i % cfg.val_interval == 0 or i == max_iter:
-        if main_gpu:
-            checkpointer.save(cur_iter=i)
-            inference(model.module, cfg, during_train=True)
-            model.train()
+    if i > start_iter and i % cfg.val_interval == 0 or i == max_iter:
+        with timer.counter('val'):
+            if main_gpu:
+                checkpointer.save(cur_iter=i)
+                inference(model.module, cfg, during_train=True)
+                model.train()

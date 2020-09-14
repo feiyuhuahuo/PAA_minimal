@@ -17,6 +17,7 @@ def init(length=100):
     times = {}
     times.setdefault('batch', [])
     times.setdefault('data', [])
+    times.setdefault('val', [])
     mark = False
     max_len = length
 
@@ -32,11 +33,15 @@ def stop():
 
 
 def add_batch_time(batch_time):
+    if len(times['val']) != 0:  # exclude the validation time
+        batch_time = batch_time - times['val'][0]
+        times['val'] = []
+
     times['batch'].append(batch_time)
 
     inner_time = 0
     for k, v in times.items():
-        if k != 'batch' and k != 'data':
+        if k not in ('batch', 'data', 'val'):
             inner_time += v[-1]
 
     times['data'].append(batch_time - inner_time)
