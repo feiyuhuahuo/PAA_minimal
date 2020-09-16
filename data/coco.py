@@ -17,8 +17,7 @@ class ImageList:
 
     def __repr__(self):
         if isinstance(self.img, torch.Tensor):
-            s = f'\nimg: shape: {self.img.shape}, dtype: {self.img.dtype}, device: {self.img.device}, ' \
-                f'grad: {self.img.requires_grad}'
+            s = f'\nimg: {self.img.shape}, {self.img.dtype}, {self.img.device}, need_grad: {self.img.requires_grad}'
         elif isinstance(self.img, PIL.Image.Image):
             s = f'\nimg: {type(self.img)}'
         else:

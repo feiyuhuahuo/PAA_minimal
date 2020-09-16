@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.distributed as dist
+import pdb
 
 os.makedirs('results/', exist_ok=True)
 os.makedirs('weights/', exist_ok=True)
@@ -8,19 +9,22 @@ os.makedirs('weights/', exist_ok=True)
 
 class res50_1x_cfg:
     def __init__(self, args_attr, val_mode=False):
-        for k, v in args_attr.items():
-            self.__setattr__(k, v)
-
         data_root = '/home/feiyu/Data/coco2017/'
+        self.gpu_id = 0
         if not val_mode:
-            self.train_imgs = data_root + 'val2017/'
-            self.train_ann = data_root + 'annotations/instances_val2017.json'
+            self.train_bs = 12
+            self.bs_per_gpu = None
+        self.test_bs = 1
+        if not val_mode:
+            self.train_imgs = data_root + 'train2017/'
+            self.train_ann = data_root + 'annotations/instances_train2017.json'
         self.val_imgs = data_root + 'val2017/'
         self.val_ann = data_root + 'annotations/instances_val2017.json'
         self.num_classes = 81
         self.backbone = 'res50'
         if not val_mode:
             self.weight = 'weights/R-50.pkl'
+            self.resume = None
         self.stage_with_dcn = (False, False, False, False)
         self.dcn_tower = False
         self.anchor_strides = (8, 16, 32, 64, 128)
@@ -30,6 +34,7 @@ class res50_1x_cfg:
         if not val_mode:
             self.min_size_train = 800
             self.max_size_train = 1333
+            self.val_interval = 4000
 
             self.box_loss_w = 1.3
             self.iou_loss_w = 0.5
@@ -39,15 +44,12 @@ class res50_1x_cfg:
             self.max_iter = int(90000 / self.bs_factor)
             self.decay_steps = (int(60000 / self.bs_factor), int(80000 / self.bs_factor))
 
-            self.val_interval = 4000
-            self.resume = None
-
         self.min_size_test = 800
         self.max_size_test = 1333
         self.nms_topk = 1000
         self.nms_score_thre = 0.05
         self.nms_iou_thre = 0.6
-        self.test_score_voting = True
+        self.test_score_voting = False
 
         # rarely used parameters ----------------------------------
         if not val_mode:
@@ -62,12 +64,17 @@ class res50_1x_cfg:
         self.match_iou_thre = 0.1
         self.max_detections = 100
 
+        self.para_list = list(vars(self).keys())  # for ordered printing
+
+        for k, v in args_attr.items():
+            self.__setattr__(k, v)
+
     def print_cfg(self):
         print()
         print('-' * 30 + self.__class__.__name__ + '-' * 30)
-        for k, v in vars(self).items():
-            if k != 'local_rank':
-                print(f'{k}: {v}')
+        for k in self.para_list:
+            if k not in ('local_rank', 'bs_factor', 'para_list'):
+                print(f'{k}: {getattr(self, k)}')
         print()
 
 
@@ -105,16 +112,18 @@ class res101_dcn_2x_cfg(res50_1x_cfg):
 
 def get_config(args, val_mode=False):
     if val_mode:
-        gpu_id = [int(aa.strip()) for aa in args.gpu_id.split(',')]
-        assert len(gpu_id) == 1, f'Only one GPU can be used in val mode, got {len(gpu_id)}.'
+        assert args.gpu_id.isdigit(), f'Only one GPU can be used in val mode, got {args.gpu_id}.'
     else:
         torch.cuda.set_device(args.local_rank)
         dist.init_process_group(backend="nccl", init_method="env://")
 
-        # Only launch this script by torch.distributed.launch, 'WORLD_SIZE' can be add to environment variables.
+        # Only launched by torch.distributed.launch, 'WORLD_SIZE' can be add to environment variables.
         num_gpus = int(os.environ["WORLD_SIZE"])
         assert args.train_bs % num_gpus == 0, 'Training batch size must be divisible by GPU number.'
         args.bs_per_gpu = int(args.train_bs / num_gpus)
+
+        if os.environ.get('CUDA_VISIBLE_DEVICES'):
+            args.gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES')
 
     cfg = res50_1x_cfg(vars(args), val_mode)  # change the desired config here
 

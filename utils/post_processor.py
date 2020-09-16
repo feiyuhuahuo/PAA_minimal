@@ -7,7 +7,7 @@ import pdb
 
 
 def select_over_all_levels(cfg, box_list):
-    results = []
+    result_batch = []
     for i in range(len(box_list)):
         result = boxlist_ml_nms(box_list[i], cfg.nms_iou_thre)  # multi-class nms
         num_detections = result.box.shape[0]
@@ -51,9 +51,9 @@ def select_over_all_levels(cfg, box_list):
                 if voted_boxes:
                     result.box[result_inds] = torch.cat(voted_boxes, dim=0)
 
-        results.append(result)
+        result_batch.append(result)
 
-    return results
+    return result_batch
 
 
 def post_process(cfg, c_batch, box_batch, iou_batch, anchors, resized_size):

@@ -141,13 +141,12 @@ class BoxList:
         return area
 
     def __repr__(self):
-        s = f'\nbox: shape: {self.box.shape}, dtype: {self.box.dtype}, device: {self.box.device}, ' \
-            f'grad: {self.box.requires_grad}'
+        s = f'\nbox: {self.box.shape}, {self.box.dtype}, {self.box.device}, need_grad: {self.box.requires_grad}'
 
         for k, v in vars(self).items():
             if k != 'box':
                 if isinstance(v, torch.Tensor):
-                    s += f'\n{k}: shape: {v.shape}, dtype: {v.dtype}, device: {v.device}, grad: {v.requires_grad}'
+                    s += f'\n{k}: {v.shape}, {v.dtype}, {v.device}, need_grad: {v.requires_grad}'
                 else:
                     s += f'\n{k}: {v}'
 

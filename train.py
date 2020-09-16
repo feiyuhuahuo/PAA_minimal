@@ -2,7 +2,6 @@ import argparse
 import datetime
 import time
 import torch
-import tensorboardX
 import torch.distributed as dist
 from config import get_config
 from data.data_loader import make_data_loader
@@ -18,8 +17,8 @@ parser = argparse.ArgumentParser(description='PAA_Minimal Training')
 parser.add_argument('--local_rank', type=int)
 parser.add_argument('--train_bs', type=int, default=4, help='total training batch size')
 parser.add_argument('--test_bs', type=int, default=1, help='-1 to disable val')
-parser.add_argument('--val_interval', type=int, default=4000, help='validation interval during training')
 parser.add_argument('--resume', type=str, default=None, help='the weight for resume training')
+parser.add_argument('--val_interval', type=int, default=4000, help='validation interval during training')
 args = parser.parse_args()
 cfg = get_config(args)
 
@@ -34,7 +33,7 @@ optim = Optimizer(model, cfg)
 checkpointer = Checkpointer(cfg, model.module, optim.optimizer)
 start_iter = int(cfg.resume.split('_')[-1].split('.')[0]) if cfg.resume else 0
 data_loader = make_data_loader(cfg, start_iter=start_iter)
-max_iter = len(data_loader)
+max_iter = len(data_loader) - 1
 timer.init()
 main_gpu = dist.get_rank() == 0
 num_gpu = dist.get_world_size()

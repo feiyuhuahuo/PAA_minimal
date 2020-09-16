@@ -18,6 +18,4 @@ import pdb
 #
 #         bb[k] = cc
 
-aa = ['a', 2, 3, 'e', 10]
-for i, a in enumerate(aa, 3):
-    print(i, a)
+print('1'.isdigit())
