@@ -7,24 +7,26 @@ os.makedirs('results/', exist_ok=True)
 os.makedirs('weights/', exist_ok=True)
 
 
-class res50_1x_cfg:
-    def __init__(self, args_attr, val_mode=False):
+class res50_1x:
+    def __init__(self, args, val_mode=False):
         data_root = '/home/feiyu/Data/coco2017/'
-        self.gpu_id = 0
+
+        self.gpu_id = args.gpu_id
         if not val_mode:
-            self.train_bs = 12
-            self.bs_per_gpu = None
-        self.test_bs = 1
+            self.train_bs = args.train_bs
+            self.bs_per_gpu = args.bs_per_gpu
+        self.test_bs = args.test_bs
         if not val_mode:
             self.train_imgs = data_root + 'train2017/'
             self.train_ann = data_root + 'annotations/instances_train2017.json'
         self.val_imgs = data_root + 'val2017/'
         self.val_ann = data_root + 'annotations/instances_val2017.json'
+
         self.num_classes = 81
         self.backbone = 'res50'
+        self.weight = 'weights/R-50.pkl' if not val_mode else args.weight
         if not val_mode:
-            self.weight = 'weights/R-50.pkl'
-            self.resume = None
+            self.resume = args.resume
         self.stage_with_dcn = (False, False, False, False)
         self.dcn_tower = False
         self.anchor_strides = (8, 16, 32, 64, 128)
@@ -34,7 +36,7 @@ class res50_1x_cfg:
         if not val_mode:
             self.min_size_train = 800
             self.max_size_train = 1333
-            self.val_interval = 4000
+            self.val_interval = args.val_interval
 
             self.box_loss_w = 1.3
             self.iou_loss_w = 0.5
@@ -49,7 +51,7 @@ class res50_1x_cfg:
         self.nms_topk = 1000
         self.nms_score_thre = 0.05
         self.nms_iou_thre = 0.6
-        self.test_score_voting = False
+        self.test_score_voting = args.score_voting
 
         # rarely used parameters ----------------------------------
         if not val_mode:
@@ -64,21 +66,18 @@ class res50_1x_cfg:
         self.match_iou_thre = 0.1
         self.max_detections = 100
 
-        self.para_list = list(vars(self).keys())  # for ordered printing
-
-        for k, v in args_attr.items():
-            self.__setattr__(k, v)
+        self.val_mode = val_mode
 
     def print_cfg(self):
         print()
         print('-' * 30 + self.__class__.__name__ + '-' * 30)
-        for k in self.para_list:
-            if k not in ('local_rank', 'bs_factor', 'para_list'):
-                print(f'{k}: {getattr(self, k)}')
+        for k, v in vars(self).items():
+            if k != 'val_mode':
+                print(f'{k}: {v}')
         print()
 
 
-class res50_15x_cfg(res50_1x_cfg):
+class res50_15x(res50_1x):
     def __init__(self, args_attr, val_mode=False):
         super().__init__(args_attr, val_mode)
         if not val_mode:
@@ -86,7 +85,7 @@ class res50_15x_cfg(res50_1x_cfg):
             self.decay_steps = (int(90000 / self.bs_factor), int(120000 / self.bs_factor))
 
 
-class res101_2x_cfg(res50_1x_cfg):
+class res101_2x(res50_1x):
     def __init__(self, args_attr, val_mode=False):
         super().__init__(args_attr, val_mode)
         self.backbone = 'res101'
@@ -97,7 +96,7 @@ class res101_2x_cfg(res50_1x_cfg):
             self.decay_steps = (int(120000 / self.bs_factor), int(160000 / self.bs_factor))
 
 
-class res101_dcn_2x_cfg(res50_1x_cfg):
+class res101_dcn_2x(res50_1x):
     def __init__(self, args_attr, val_mode=False):
         super().__init__(args_attr, val_mode)
         self.backbone = 'res101'
@@ -121,11 +120,9 @@ def get_config(args, val_mode=False):
         num_gpus = int(os.environ["WORLD_SIZE"])
         assert args.train_bs % num_gpus == 0, 'Training batch size must be divisible by GPU number.'
         args.bs_per_gpu = int(args.train_bs / num_gpus)
+        args.gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES') if os.environ.get('CUDA_VISIBLE_DEVICES') else 0
 
-        if os.environ.get('CUDA_VISIBLE_DEVICES'):
-            args.gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES')
-
-    cfg = res50_1x_cfg(vars(args), val_mode)  # change the desired config here
+    cfg = globals()[args.cfg](args, val_mode)  # change the desired config here
 
     if val_mode:
         cfg.print_cfg()

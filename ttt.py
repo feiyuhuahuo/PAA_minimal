@@ -18,4 +18,5 @@ import pdb
 #
 #         bb[k] = cc
 
-print('1'.isdigit())
+import random
+print(random.randint(0, 5))

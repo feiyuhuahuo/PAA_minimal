@@ -31,16 +31,15 @@ class ImageList:
 
 
 class COCODataset(torchvision.datasets.coco.CocoDetection):
-    def __init__(self, cfg, val):
+    def __init__(self, cfg):
         self.cfg = cfg
-
-        img_path = cfg.train_imgs if not val else cfg.val_imgs
-        ann_file = cfg.train_ann if not val else cfg.val_ann
+        img_path = cfg.train_imgs if not cfg.val_mode else cfg.val_imgs
+        ann_file = cfg.train_ann if not cfg.val_mode else cfg.val_ann
         super().__init__(img_path, ann_file)
 
         self.ids = sorted(self.ids)  # sort indices for reproducible results
 
-        if not val:
+        if not cfg.val_mode:
             ids = []
             for img_id in self.ids:
                 ann_ids = self.coco.getAnnIds(imgIds=img_id, iscrowd=None)

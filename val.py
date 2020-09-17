@@ -13,6 +13,7 @@ from pycocotools.cocoeval import COCOeval
 import pdb
 
 parser = argparse.ArgumentParser(description='PAA_Minimal Evaluation')
+parser.add_argument('--cfg', type=str, default='res50_1x', help='(res50_1x, res50_15x, res101_2x, res101_dcn_2x)')
 parser.add_argument('--gpu_id', default='0', type=str, help='The GPUs to use.')
 parser.add_argument('--weight', type=str, default='weights/paa_res50.pth', help='The validation model.')
 parser.add_argument('--test_bs', default='1', type=str, help='Test batch size.')
@@ -46,7 +47,7 @@ def compute_thre_per_class(coco_eval):
 def inference(model, cfg, during_train=False):
     model.eval()
     predictions, coco_results = {}, []
-    val_loader = make_data_loader(cfg, val=True)
+    val_loader = make_data_loader(cfg)
     dataset = val_loader.dataset
     dl = len(val_loader)
     bar = ProgressBar(length=40, max_val=dl)
@@ -119,7 +120,6 @@ def inference(model, cfg, during_train=False):
 if __name__ == '__main__':
     args = parser.parse_args()
     cfg = get_config(args, val_mode=True)
-    pdb.set_trace()
     model = PAA(cfg).cuda()
     model.load_state_dict(torch.load(cfg.weight), strict=True)
     inference(model, cfg)

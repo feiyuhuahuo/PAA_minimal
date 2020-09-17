@@ -145,10 +145,10 @@ class BatchCollator:
         return img_list_batch, box_list_batch
 
 
-def make_data_loader(cfg, start_iter=0, val=False):
-    dataset = COCODataset(cfg, val)
+def make_data_loader(cfg, start_iter=0):
+    dataset = COCODataset(cfg)
 
-    if not val:
+    if not cfg.val_mode:
         num_gpus = dist.get_world_size()
         batch_size = int(cfg.train_bs / num_gpus)
         sampler = data.distributed.DistributedSampler(dataset, shuffle=True)

@@ -15,16 +15,18 @@ import pdb
 
 parser = argparse.ArgumentParser(description='PAA_Minimal Training')
 parser.add_argument('--local_rank', type=int)
+parser.add_argument('--cfg', type=str, default='res50_1x', help='(res50_1x, res50_15x, res101_2x, res101_dcn_2x)')
 parser.add_argument('--train_bs', type=int, default=4, help='total training batch size')
 parser.add_argument('--test_bs', type=int, default=1, help='-1 to disable val')
 parser.add_argument('--resume', type=str, default=None, help='the weight for resume training')
 parser.add_argument('--val_interval', type=int, default=4000, help='validation interval during training')
+parser.add_argument('--score_voting', action='store_true', default=False, help='Using score voting.')
 args = parser.parse_args()
 cfg = get_config(args)
 
 model = PAA(cfg)
 model.train().cuda()  # broadcast_buffers is True if BN is used
-model = DDP(model, device_ids=[cfg.local_rank], output_device=cfg.local_rank, broadcast_buffers=False)
+model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank, broadcast_buffers=False)
 
 # if cfg.MODEL.USE_SYNCBN:  # TODO: figure this out
 #     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)

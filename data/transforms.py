@@ -1,45 +1,34 @@
 import random
-import math
+import pdb
 from torchvision.transforms import functional as F
 from utils.box_list import BoxList
 
 
 def resize(img_list, box_list=None, min_size=None, max_size=None):
-    if isinstance(min_size, int):
-        size = min_size
-    elif isinstance(min_size, tuple):
-        size = random.randint(min_size[0], min_size[1])
-    else:
-        raise TypeError(f'The type of min_size_train shoule be int or tuple, got {type(min_size)}')
+    assert type(min_size) in (int, tuple), f'The type of min_size_train shoule be int or tuple, got {type(min_size)}.'
+    if isinstance(min_size, tuple):
+        min_size = random.randint(min_size[0], min_size[1])
 
     assert img_list.img.size == img_list.ori_size, 'img size error when resizing.'
     w, h = img_list.ori_size
 
-    if max_size is not None:
-        min_original_size = float(min((w, h)))
-        max_original_size = float(max((w, h)))
-        if max_original_size / min_original_size * size > max_size:
-            size = int(round(max_size * min_original_size / max_original_size))
-
-    if (w <= h and w == size) or (h <= w and h == size):
-        resize_h = h, resize_w = w
+    short_side, long_side = min(w, h), max(w, h)
+    if min_size / short_side * long_side > max_size:
+        scale = max_size / long_side
     else:
-        if w < h:
-            resize_w = size
-            resize_h = int(size * h / w)
-        else:
-            resize_h = size
-            resize_w = int(size * w / h)
+        scale = min_size / short_side
 
-    resized_img = F.resize(img_list.img, (resize_h, resize_w))
+    new_h, new_w = int(scale * h), int(scale * w)
+    assert (min(new_h, new_w)) <= min_size and (max(new_h, new_w) <= max_size), 'Scale error when resizing.'
+
+    resized_img = F.resize(img_list.img, (new_h, new_w))
     img_list.img = resized_img
-    img_list.resized_size = (resize_w, resize_h)
+    img_list.resized_size = (new_w, new_h)
 
     if box_list is None:
         return img_list
     else:
-        assert isinstance(box_list, BoxList), f'target error, should be a Boxlist, got a {type(box_list)}.'
-        box_list.resize(new_size=(resize_w, resize_h))
+        box_list.resize(new_size=(new_w, new_h))
 
     return img_list, box_list
 
