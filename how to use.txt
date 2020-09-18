@@ -1,4 +1,0 @@
-python setup.py build develop
-python val.py [--gpu_id=0] [--test_bs=2]
-python -m torch.distributed.launch train.py --train_bs=2
-python -m torch.distributed.launch --nproc_per_node=2 train.py --train_bs=6

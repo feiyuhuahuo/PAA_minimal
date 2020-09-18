@@ -152,7 +152,7 @@ class Checkpointer:
         model.load_state_dict(model_state_dict, strict=True)
 
     def save(self, cur_iter):
-        save_file = f'weights/{self.cfg.backbone}_{cur_iter}.pth'
+        save_file = f'weights/{self.cfg.__class__.__name__}_{cur_iter}.pth'
         print(f'Saving checkpoint to {save_file}')
         torch.save(self.model.state_dict(), save_file)
 

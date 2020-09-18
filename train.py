@@ -20,7 +20,10 @@ parser.add_argument('--train_bs', type=int, default=4, help='total training batc
 parser.add_argument('--test_bs', type=int, default=1, help='-1 to disable val')
 parser.add_argument('--resume', type=str, default=None, help='the weight for resume training')
 parser.add_argument('--val_interval', type=int, default=4000, help='validation interval during training')
+parser.add_argument('--val_num', default=-1, type=int, help='Number of validation images, -1 for all.')
 parser.add_argument('--score_voting', action='store_true', default=False, help='Using score voting.')
+parser.add_argument('--self_eval', action='store_true', default=False, help='Improved COCO-EVAL written by myself.')
+
 args = parser.parse_args()
 cfg = get_config(args)
 
@@ -36,12 +39,12 @@ checkpointer = Checkpointer(cfg, model.module, optim.optimizer)
 start_iter = int(cfg.resume.split('_')[-1].split('.')[0]) if cfg.resume else 0
 data_loader = make_data_loader(cfg, start_iter=start_iter)
 max_iter = len(data_loader) - 1
-timer.init()
+timer.reset()
 main_gpu = dist.get_rank() == 0
 num_gpu = dist.get_world_size()
 
 for i, (img_list_batch, box_list_batch) in enumerate(data_loader, start_iter):
-    if i > start_iter:
+    if main_gpu and i == start_iter + 1:
         timer.start()
 
     optim.update_lr(step=i)
@@ -68,7 +71,7 @@ for i, (img_list_batch, box_list_batch) in enumerate(data_loader, start_iter):
     with timer.counter('update'):
         optim.optimizer.step()
 
-    time_this = time.perf_counter()
+    time_this = time.time()
     if i > start_iter:
         batch_time = time_this - time_last
         timer.add_batch_time(batch_time)
@@ -84,9 +87,11 @@ for i, (img_list_batch, box_list_batch) in enumerate(data_loader, start_iter):
         print(f'step: {i} | lr: {cur_lr:.2e} | l_class: {l_c:.3f} | l_box: {l_b:.3f} | l_iou: {l_iou:.3f} | '
               f't_t: {t_t:.3f} | t_d: {t_d:.3f} | t_fl: {t_fl:.3f} | t_b: {t_b:.3f} | t_u: {t_u:.3f} | ETA: {eta}')
 
-    if i > start_iter and i % cfg.val_interval == 0 or i == max_iter:
-        with timer.counter('val'):
-            if main_gpu:
-                checkpointer.save(cur_iter=i)
-                inference(model.module, cfg, during_train=True)
-                model.train()
+    if main_gpu and (i > start_iter and i % cfg.val_interval == 0 or i == max_iter):  # pay attention to the logic here
+        checkpointer.save(cur_iter=i)
+        inference(model.module, cfg, during_training=True)
+        model.train()
+        timer.reset()  # training time and val time share the same Obj, so reset it to avoid confusion
+
+    if main_gpu and i != 1 and i % cfg.val_interval == 1:
+        timer.start()  # the first iter after validation should not be included

@@ -9,16 +9,16 @@ from utils.utils import ProgressBar
 from utils.post_processor import post_process
 import json
 from utils import timer
-from pycocotools.cocoeval import COCOeval
 import pdb
 
 parser = argparse.ArgumentParser(description='PAA_Minimal Evaluation')
 parser.add_argument('--cfg', type=str, default='res50_1x', help='(res50_1x, res50_15x, res101_2x, res101_dcn_2x)')
 parser.add_argument('--gpu_id', default='0', type=str, help='The GPUs to use.')
-parser.add_argument('--weight', type=str, default='weights/paa_res50.pth', help='The validation model.')
+parser.add_argument('--weight', type=str, default='weights/res50_1x_116000.pth', help='The validation model.')
 parser.add_argument('--test_bs', default='1', type=str, help='Test batch size.')
+parser.add_argument('--val_num', default=-1, type=int, help='Number of validation images, -1 for all.')
 parser.add_argument('--score_voting', action='store_true', default=False, help='Using score voting.')
-
+parser.add_argument('--self_eval', action='store_true', default=False, help='Improved COCO-EVAL written by myself.')
 
 def compute_thre_per_class(coco_eval):
     # Compute the score threshold per class according to the highest f-measure. Then it can be used in visualization.
@@ -44,18 +44,18 @@ def compute_thre_per_class(coco_eval):
     print(list(scores))
 
 
-def inference(model, cfg, during_train=False):
+def inference(model, cfg, during_training=False):
     model.eval()
     predictions, coco_results = {}, []
-    val_loader = make_data_loader(cfg)
+    val_loader = make_data_loader(cfg, during_training=during_training)
     dataset = val_loader.dataset
     dl = len(val_loader)
     bar = ProgressBar(length=40, max_val=dl)
-    timer.init()
+    timer.reset()
 
     with torch.no_grad():
         for i, (img_list_batch, _) in enumerate(val_loader):
-            if i > 0:
+            if i == 1:
                 timer.start()
 
             with timer.counter('forward'):
@@ -108,13 +108,20 @@ def inference(model, cfg, during_train=False):
         json.dump(coco_results, f)
 
     coco_dt = dataset.coco.loadRes(file_path)
-    coco_eval = COCOeval(dataset.coco, coco_dt, iouType='bbox')
-    coco_eval.evaluate()
-    coco_eval.accumulate()
-    coco_eval.summarize()
 
-    if not during_train:
-        compute_thre_per_class(coco_eval)
+    if cfg.val_api == 'Improved COCO':
+        from my_cocoeval.cocoeval import SelfEval
+        bbox_eval = SelfEval(dataset.coco, coco_dt, all_points=False)
+    else:
+        from pycocotools.cocoeval import COCOeval
+        bbox_eval = COCOeval(dataset.coco, coco_dt, iouType='bbox')
+
+    bbox_eval.evaluate()
+    bbox_eval.accumulate()
+    bbox_eval.summarize()
+
+    if cfg.val_api == 'Original COCO' and not during_training:
+        compute_thre_per_class(bbox_eval)
 
 
 if __name__ == '__main__':

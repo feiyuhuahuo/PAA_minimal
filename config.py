@@ -21,6 +21,8 @@ class res50_1x:
             self.train_ann = data_root + 'annotations/instances_train2017.json'
         self.val_imgs = data_root + 'val2017/'
         self.val_ann = data_root + 'annotations/instances_val2017.json'
+        self.val_num = args.val_num
+        self.val_api = 'Improved COCO' if args.self_eval else 'Original COCO'
 
         self.num_classes = 81
         self.backbone = 'res50'
@@ -72,7 +74,7 @@ class res50_1x:
         print()
         print('-' * 30 + self.__class__.__name__ + '-' * 30)
         for k, v in vars(self).items():
-            if k != 'val_mode':
+            if k not in ('bs_factor', 'val_mode'):
                 print(f'{k}: {v}')
         print()
 
@@ -112,6 +114,7 @@ class res101_dcn_2x(res50_1x):
 def get_config(args, val_mode=False):
     if val_mode:
         assert args.gpu_id.isdigit(), f'Only one GPU can be used in val mode, got {args.gpu_id}.'
+        os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
     else:
         torch.cuda.set_device(args.local_rank)
         dist.init_process_group(backend="nccl", init_method="env://")

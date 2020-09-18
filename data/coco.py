@@ -31,23 +31,23 @@ class ImageList:
 
 
 class COCODataset(torchvision.datasets.coco.CocoDetection):
-    def __init__(self, cfg):
+    def __init__(self, cfg, valing):
         self.cfg = cfg
-        img_path = cfg.train_imgs if not cfg.val_mode else cfg.val_imgs
-        ann_file = cfg.train_ann if not cfg.val_mode else cfg.val_ann
-        super().__init__(img_path, ann_file)
+        self.valing = valing
 
+        img_path = cfg.train_imgs if not valing else cfg.val_imgs
+        ann_file = cfg.train_ann if not valing else cfg.val_ann
+        super().__init__(img_path, ann_file)
         self.ids = sorted(self.ids)  # sort indices for reproducible results
 
-        if not cfg.val_mode:
-            ids = []
+        if not valing:
             for img_id in self.ids:
                 ann_ids = self.coco.getAnnIds(imgIds=img_id, iscrowd=None)
                 anno = self.coco.loadAnns(ann_ids)
-                if self.has_valid_annotation(anno):  # filter images without detection annotations
-                    ids.append(img_id)
 
-            self.ids = ids
+                if not self.has_valid_annotation(anno):  # filter images without detection annotations
+                    self.ids.remove(img_id)
+
             self.aug = train_aug
         else:
             self.aug = val_aug
@@ -91,3 +91,9 @@ class COCODataset(torchvision.datasets.coco.CocoDetection):
         img_list, box_list = self.aug(img_list, box_list, self.cfg)
 
         return img_list, box_list
+
+    def __len__(self):
+        if (not self.valing) or (self.cfg.val_num == -1):
+            return len(self.ids)
+        else:
+            return min(self.cfg.val_num, len(self.ids))

@@ -12,39 +12,33 @@ mark = False  # Use for starting and stopping the timer
 max_len = 100
 
 
-def init(length=100):
+def reset(length=100):
     global times, mark, max_len
     times = {}
     times.setdefault('batch', [])
     times.setdefault('data', [])
-    times.setdefault('val', [])
     mark = False
     max_len = length
 
 
 def start():
-    global mark
+    global mark, times
     mark = True
 
-
-def stop():
-    global mark
-    mark = False
+    for k, v in times.items():
+        assert len(v) == 0, 'Error, time list is not empty when starting.'
 
 
 def add_batch_time(batch_time):
-    if len(times['val']) != 0:  # exclude the validation time
-        batch_time = batch_time - times['val'][0]
-        times['val'] = []
+    if mark:
+        times['batch'].append(batch_time)
 
-    times['batch'].append(batch_time)
+        inner_time = 0
+        for k, v in times.items():
+            if k not in ('batch', 'data'):
+                inner_time += v[-1]
 
-    inner_time = 0
-    for k, v in times.items():
-        if k not in ('batch', 'data', 'val'):
-            inner_time += v[-1]
-
-    times['data'].append(batch_time - inner_time)
+        times['data'].append(batch_time - inner_time)
 
 
 def get_times(time_name):

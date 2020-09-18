@@ -1,13 +1,23 @@
 import numpy as np
 from collections import defaultdict
-from utils import mask as maskUtils
+from my_cocoeval import mask as maskUtils
 from terminaltables import AsciiTable
-from data.config import COCO_CLASSES
 import matplotlib.pyplot as plt
 import pdb
 
+NAMES = ('person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck',
+         'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat',
+         'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe',
+         'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard',
+         'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle',
+         'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
+         'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake',
+         'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop',
+         'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink',
+         'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush')
 
-class COCOeval:
+
+class SelfEval:
     def __init__(self, cocoGt, cocoDt, all_points=False):
         self.gt = defaultdict(list)
         self.dt = defaultdict(list)
@@ -125,7 +135,7 @@ class COCOeval:
         self.r_record = [[[None for _ in range(self.T)] for _ in range(self.A)] for _ in range(self.C)]
         self.s_record = [[[None for _ in range(self.T)] for _ in range(self.A)] for _ in range(self.C)]
 
-        # TODO: check if the logic is right, especially when there are absent categories during evaling part of images
+        # TODO: check if the logic is right, especially when there are absent categories when evaling part of images
         for c in range(self.C):
             for a in range(self.A):
                 temp_dets = self.match_record[c][a][:]
@@ -254,6 +264,7 @@ class COCOeval:
 
         table_c_list = [['Category', 'AP', 'Recall'] * 3]
         c_line = ['all', self.mr4(AP_matrix[:, 0, :]), self.mr4(AR_matrix[:, 0, :])]
+
         if self.all_points:  # max practical precision
             table_mpp_list = [['Category', 'P_max', 'R_max', 'Score', 'MPP', 'FF'] * 3]
             mpp_line = ['all', self.mr4(MPP_matrix[:, 0, :, 0]), self.mr4(MPP_matrix[:, 0, :, 1]),
@@ -263,18 +274,19 @@ class COCOeval:
         for i in range(self.C):
             if -1 in AP_matrix[i, 0, :]:  # if this category is absent
                 assert AP_matrix[i, 0, :].sum() == -len(self.iou_thre), 'Not all ap is -1 in absent category'
-                c_line += [COCO_CLASSES[i], 'absent', 'absent']
+                c_line += [NAMES[i], 'absent', 'absent']
                 if self.all_points:
-                    mpp_line += [COCO_CLASSES[i], 'absent', 'absent', 'absent', 'absent', 'absent']
+                    mpp_line += [NAMES[i], 'absent', 'absent', 'absent', 'absent', 'absent']
             else:
-                c_line += [COCO_CLASSES[i], self.mr4(AP_matrix[i, 0, :]), self.mr4(AR_matrix[i, 0, :])]
+                c_line += [NAMES[i], self.mr4(AP_matrix[i, 0, :]), self.mr4(AR_matrix[i, 0, :])]
                 if self.all_points:
-                    mpp_line += [COCO_CLASSES[i], self.mr4(MPP_matrix[i, 0, :, 0]), self.mr4(MPP_matrix[i, 0, :, 1]),
+                    mpp_line += [NAMES[i], self.mr4(MPP_matrix[i, 0, :, 0]), self.mr4(MPP_matrix[i, 0, :, 1]),
                                  self.mr4(MPP_matrix[i, 0, :, 2]), self.mr4(MPP_matrix[i, 0, :, 3]),
                                  self.mr4(MPP_matrix[i, 0, :, 4])]
             if (i + 2) % 3 == 0:
                 table_c_list.append(c_line)
                 c_line = []
+
                 if self.all_points:
                     table_mpp_list.append(mpp_line)
                     mpp_line = []
