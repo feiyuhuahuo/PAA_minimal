@@ -47,22 +47,30 @@ python -m torch.distributed.launch --nproc_per_node=2 train.py --train_bs=12 --c
 python -m torch.distributed.launch --nproc_per_node=2 train.py --train_bs=12 --cfg=res101_2x --resume=weight/[weight_file]
 
 # Other utilization 
---test_bs=2 to set validation batch size
---val_interval=6000 to set validation interval during training
---score_voting to activate score voting during validation
+--test_bs=2, set validation batch size.
+--val_interval=6000, set validation interval during training.
+--val_num=500, set validation number during training.
+--score_voting, activate score voting during validation.
+--improved_coco, use an improved COCO API to do validation.
 ```
 
 
 ## Evalution
 ```
 # Evaluate COCO val2017 on a specific GPU.
-python val.py --gpu_id=0 --weight=weights/res50_1x_116000.pth --cfg=res50_1x
+python val.py --gpu_id=0 --weight=weights/res50_1x_116000.pth
 
 # Evaluate with a specific batch size.
-python val.py --gpu_id=0 --weight=weights/res50_1x_116000.pth --cfg=res50_1x --test_bs=2
+python val.py --gpu_id=0 --weight=weights/res50_1x_116000.pth --test_bs=2
+
+# Specify validation number.
+python val.py --gpu_id=0 --weight=weights/res50_1x_116000.pth --val_num=500
 
 # Evaluate with score voting.
-python val.py --gpu_id=0 --weight=weights/res50_1x_116000.pth --cfg=res50_1x --score_voting
+python val.py --gpu_id=0 --weight=weights/res50_1x_116000.pth --score_voting
+
+# Use an improved COCO API to do validation.
+python val.py --gpu_id=0 --weight=weights/res50_1x_116000.pth --improved_coco
 ```
 
 ## Reference:

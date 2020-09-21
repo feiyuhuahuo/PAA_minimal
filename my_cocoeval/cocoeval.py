@@ -3,6 +3,7 @@ from collections import defaultdict
 from my_cocoeval import mask as maskUtils
 from terminaltables import AsciiTable
 import matplotlib.pyplot as plt
+import os
 import pdb
 
 NAMES = ('person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck',
@@ -233,56 +234,56 @@ class SelfEval:
 
     def summarize(self):
         print('Summarizing...')
-        AP_matrix = np.zeros((self.C, self.A, self.T)) - 1
-        AR_matrix = np.zeros((self.C, self.A, self.T)) - 1
+        self.AP_matrix = np.zeros((self.C, self.A, self.T)) - 1
+        self.AR_matrix = np.zeros((self.C, self.A, self.T)) - 1
         if self.all_points:
-            MPP_matrix = np.zeros((self.C, self.A, self.T, 5)) - 1
+            self.MPP_matrix = np.zeros((self.C, self.A, self.T, 5)) - 1
 
         for c in range(self.C):
             for a in range(self.A):
                 for t in range(self.T):
                     if self.p_record[c][a][t] is not None:  # exclude absent categories, the related AP is -1
-                        AP_matrix[c, a, t] = (self.p_record[c][a][t] * self.r_record[c][a][t]).sum()
+                        self.AP_matrix[c, a, t] = (self.p_record[c][a][t] * self.r_record[c][a][t]).sum()
                         # In all points mode, recall is always the sum of 'stair_w', but in 101 points mode,
                         # we need to find where precision reduce to 0., and thus calculate the recall.
                         if self.all_points:
-                            AR_matrix[c, a, t] = self.r_record[c][a][t].sum()
+                            self.AR_matrix[c, a, t] = self.r_record[c][a][t].sum()
                             r_cumsum = np.cumsum(self.r_record[c][a][t])
                             ap_array = self.p_record[c][a][t] * r_cumsum
                             index = np.argmax(ap_array)
                             p_max = self.p_record[c][a][t][index]
                             r_max = r_cumsum[index]
-                            s_s = self.s_record[c][a][t][index]
+                            s_max = self.s_record[c][a][t][index]
                             mpp = ap_array[index]
                             # If ap == 0 for a certain threshold, ff should be taken into calculation because
                             # it's not an absent category, so ff should be 0 instead of nan.
-                            ff = 0. if AP_matrix[c, a, t] == 0 else mpp / AP_matrix[c, a, t]
-                            MPP_matrix[c, a, t] = np.array([p_max, r_max, s_s, mpp, ff])
+                            ff = 0. if self.AP_matrix[c, a, t] == 0 else mpp / self.AP_matrix[c, a, t]
+                            self.MPP_matrix[c, a, t] = np.array([p_max, r_max, s_max, mpp, ff])
                         else:
                             r_mask = self.p_record[c][a][t] != 0
-                            AR_matrix[c, a, t] = (self.r_record[c][a][t])[r_mask].sum()
+                            self.AR_matrix[c, a, t] = (self.r_record[c][a][t])[r_mask].sum()
 
         table_c_list = [['Category', 'AP', 'Recall'] * 3]
-        c_line = ['all', self.mr4(AP_matrix[:, 0, :]), self.mr4(AR_matrix[:, 0, :])]
+        c_line = ['all', self.mr4(self.AP_matrix[:, 0, :]), self.mr4(self.AR_matrix[:, 0, :])]
 
         if self.all_points:  # max practical precision
             table_mpp_list = [['Category', 'P_max', 'R_max', 'Score', 'MPP', 'FF'] * 3]
-            mpp_line = ['all', self.mr4(MPP_matrix[:, 0, :, 0]), self.mr4(MPP_matrix[:, 0, :, 1]),
-                        self.mr4(MPP_matrix[:, 0, :, 2]), self.mr4(MPP_matrix[:, 0, :, 3]),
-                        self.mr4(MPP_matrix[:, 0, :, 4])]
+            mpp_line = ['all', self.mr4(self.MPP_matrix[:, 0, :, 0]), self.mr4(self.MPP_matrix[:, 0, :, 1]),
+                        self.mr4(self.MPP_matrix[:, 0, :, 2]), self.mr4(self.MPP_matrix[:, 0, :, 3]),
+                        self.mr4(self.MPP_matrix[:, 0, :, 4])]
 
         for i in range(self.C):
-            if -1 in AP_matrix[i, 0, :]:  # if this category is absent
-                assert AP_matrix[i, 0, :].sum() == -len(self.iou_thre), 'Not all ap is -1 in absent category'
+            if -1 in self.AP_matrix[i, 0, :]:  # if this category is absent
+                assert self.AP_matrix[i, 0, :].sum() == -len(self.iou_thre), 'Not all ap is -1 in absent category'
                 c_line += [NAMES[i], 'absent', 'absent']
                 if self.all_points:
                     mpp_line += [NAMES[i], 'absent', 'absent', 'absent', 'absent', 'absent']
             else:
-                c_line += [NAMES[i], self.mr4(AP_matrix[i, 0, :]), self.mr4(AR_matrix[i, 0, :])]
+                c_line += [NAMES[i], self.mr4(self.AP_matrix[i, 0, :]), self.mr4(self.AR_matrix[i, 0, :])]
                 if self.all_points:
-                    mpp_line += [NAMES[i], self.mr4(MPP_matrix[i, 0, :, 0]), self.mr4(MPP_matrix[i, 0, :, 1]),
-                                 self.mr4(MPP_matrix[i, 0, :, 2]), self.mr4(MPP_matrix[i, 0, :, 3]),
-                                 self.mr4(MPP_matrix[i, 0, :, 4])]
+                    mpp_line += [NAMES[i], self.mr4(self.MPP_matrix[i, 0, :, 0]),
+                                 self.mr4(self.MPP_matrix[i, 0, :, 1]), self.mr4(self.MPP_matrix[i, 0, :, 2]),
+                                 self.mr4(self.MPP_matrix[i, 0, :, 3]), self.mr4(self.MPP_matrix[i, 0, :, 4])]
             if (i + 2) % 3 == 0:
                 table_c_list.append(c_line)
                 c_line = []
@@ -293,15 +294,15 @@ class SelfEval:
 
         table_iou_list = [['IoU'] + self.iou_thre, ['AP'], ['Recall']]
         for i in range(self.T):
-            ap_m = AP_matrix[:, 0, i]  # absent category is not included
-            ar_m = AR_matrix[:, 0, i]
+            ap_m = self.AP_matrix[:, 0, i]  # absent category is not included
+            ar_m = self.AR_matrix[:, 0, i]
             table_iou_list[1].append(self.mr4(ap_m[ap_m > -1]))
             table_iou_list[2].append(self.mr4(ar_m[ar_m > -1]))
 
         table_area_list = [['Area'] + self.area_name, ['AP'], ['Recall']]
         for i in range(self.A):
-            ap_m = AP_matrix[:, i, :]
-            ar_m = AR_matrix[:, i, :]
+            ap_m = self.AP_matrix[:, i, :]
+            ar_m = self.AR_matrix[:, i, :]
             table_area_list[1].append(self.mr4(ap_m[ap_m > -1]))
             table_area_list[2].append(self.mr4(ar_m[ar_m > -1]))
 
@@ -322,12 +323,63 @@ class SelfEval:
         print(table_area.table)
 
     def draw_curve(self):
-        recalls = self.r_record[0][0][0].cumsum()
-        precisions = self.p_record[0][0][0]
-        pdb.set_trace()  # the len of different thre is different
-        plt.plot(recalls, precisions)
-        plt.xlim(0, 1)
-        plt.ylim(0, 1)
-        plt.show()
-        pdb.set_trace()
-        plt.hlines()
+        print('\nDrawing precision-recall curves...')
+        os.makedirs('results/mpp_result', exist_ok=True)
+
+        for i in range(self.C):
+            print(f'\r{i}/{self.C}, {NAMES[i]:>15}', end='')
+
+            mAP = self.mr4(self.AP_matrix[i, 0, :])
+            fig = plt.figure(figsize=(15, 10))
+            fig.suptitle(f'{NAMES[i]}, mAP={mAP}', size=16, color='red')
+
+            for j in range(self.T):
+                recall = np.cumsum(self.r_record[i][0][j]).tolist()
+                recall.insert(0, 0.)   # insert 0. to supplement the base point
+                r_last = recall[-1]
+                precision = self.p_record[i][0][j].tolist()
+                precision.insert(0, 0.)
+
+                # Every time we plot, we should use plt APIs to reset all things, or it will reuse
+                # the last plot window, and may cause bugs.
+                plt.subplot(3, 4, j + 1)
+                plt.title(f'thre={self.iou_thre[j]}', size=12, color='black')
+                plt.xlim(0, r_last)
+                plt.xlabel('Recall', size=12)
+                plt.ylim(0, 1.1)
+                plt.ylabel('Precision', size=12)
+                plt.tick_params(labelsize=12)  # set tick font size
+
+                ap = self.AP_matrix[i, 0, j]
+                p_max, r_max, s_max, mpp, ff = self.MPP_matrix[i][0][j].tolist()
+
+                # draw the MPP rectangle
+                plt.hlines(p_max, xmin=0, xmax=r_max, color='blue', linestyles='dashed')
+                plt.vlines(r_max, ymin=0, ymax=p_max, color='blue', linestyles='dashed')
+                plt.text(r_last, 1.05, f'AP={ap:.3}', ha='right', va='top', fontsize=12, color='black')
+                plt.text(r_max * 0.1, p_max - 0.1, f'MPP={mpp:.3}\nFF={ff:.3}',
+                         ha='left', va='top', fontsize=12, color='blue')
+
+                # draw the max recall point
+                plt.text(r_last * 1.04, -0.1, f'{round(r_last, 2)}', ha='center', va='bottom',
+                         fontsize=12, color='black', rotation=15)
+
+                # draw the score < 0.05 area
+                # hatch: ('/', '//', '-', '+', 'x', '\\', '\\\\', '*', 'o', 'O', '.')
+                shadow = plt.bar(x=r_last / 2, height=precision[-1], width=r_last,
+                                 hatch='//', color='white', edgecolor='grey')
+
+                # draw the s_max point
+                plt.scatter(r_max, p_max, color='red')
+                plt.text(r_max, p_max, round(s_max, 2), ha='left', va='bottom', fontsize=12, color='red')
+
+                plt.plot(recall, precision, color='black')
+
+            # loc: ('upper right', 'lower left', 'center', 'lower center', (0.4, 0.5) ...)
+            fig.legend(handles=[shadow], labels=['Area where score < 0.05'], loc='upper right', fontsize=12)
+
+            plt.tight_layout()  # resolve the overlapping issue when using subplot()
+            plt.savefig(f'results/mpp_result/{i + 1}_{NAMES[i]}.jpg')
+            plt.close()
+
+        print()

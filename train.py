@@ -22,7 +22,7 @@ parser.add_argument('--resume', type=str, default=None, help='the weight for res
 parser.add_argument('--val_interval', type=int, default=4000, help='validation interval during training')
 parser.add_argument('--val_num', default=-1, type=int, help='Number of validation images, -1 for all.')
 parser.add_argument('--score_voting', action='store_true', default=False, help='Using score voting.')
-parser.add_argument('--self_eval', action='store_true', default=False, help='Improved COCO-EVAL written by myself.')
+parser.add_argument('--improved_coco', action='store_true', default=False, help='Improved COCO-EVAL written by myself.')
 
 args = parser.parse_args()
 cfg = get_config(args)

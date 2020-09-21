@@ -22,7 +22,7 @@ class res50_1x:
         self.val_imgs = data_root + 'val2017/'
         self.val_ann = data_root + 'annotations/instances_val2017.json'
         self.val_num = args.val_num
-        self.val_api = 'Improved COCO' if args.self_eval else 'Original COCO'
+        self.val_api = 'Improved COCO' if args.improved_coco else 'Original COCO'
 
         self.num_classes = 81
         self.backbone = 'res50'

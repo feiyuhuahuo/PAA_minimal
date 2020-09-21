@@ -4,35 +4,55 @@
 # import pdb
 # import matplotlib.pyplot as plt
 #
-# plt.figure(figsize=(8, 8))
+# fig = plt.figure(figsize=(15, 10))
 #
-# xx = np.array([0, 2, 3, 4, 5, 6, 7, 8, 8.5, 9.5])
-# yy = np.array([10, 9, 8, 6, 5, 3, 2, 1, 0.7, 0.2])
+# for i in range(10):
+#     plt.subplot(3, 4, i + 1)
+#     plt.margins(x=0, y=0)
+#     xx = np.array([0.1, 0.2, 0.3, 0.4, 0.55, 0.6, 0.7, 0.8, 0.85, 0.95])
+#     yy = np.array([1, 0.9, 0.8, 0.6, 0.5, 0.3, 0.2, 0.1, 0.07, 0.02])
 #
-# plt.title('Car', size=20, color='green')
-# plt.xlim(0, 10)
-# plt.xlabel('Recall', size=14)
-# plt.ylim(0, 10)
-# plt.ylabel('Precision', size=14)
-# plt.tick_params(labelsize=14)  # set tick font size
+#     plt.title('thre=0.5', size=12, color='black')
+#     plt.xlim(0, 1)
+#     plt.xlabel('Recall', size=12)
+#     plt.ylim(0, 1)
 #
-# plt.hlines(3, xmin=0, xmax=6, color='blue', linestyles='dashed')
-# plt.vlines(6, ymin=0, ymax=3, color='blue', linestyles='dashed')
+#     plt.ylabel('Precision', size=12)
+#     plt.xticks([0., 0.2, 0.6], [0, 2, 6], rotation=10)
+#     plt.tick_params(labelsize=12)  # set tick font size
 #
-# # hatch: ('/', '//', '-', '+', 'x', '\\', '\\\\', '*', 'o', 'O', '.')
-# shadow = plt.bar(x=0, height=1, width=20, hatch='//', color='white', edgecolor='grey')
-# # loc: ('upper right', 'lower left', 'center', 'lower center', (0.4, 0.5) ...)
-# plt.legend(handles=[shadow], labels=['Area where score < 0.05'], loc='upper right', fontsize=14)
+#     plt.hlines(3, xmin=0, xmax=6, color='blue', linestyles='dashed')
+#     plt.vlines(6, ymin=0, ymax=3, color='blue', linestyles='dashed')
 #
-# plt.scatter(6, 3, color='red')
-# plt.text(6, 3, 0.23, ha='left', va='bottom', fontsize=14, color='red')
-# plt.text(0 + 0.2, 3 - 0.2, 'AP=0.224', ha='left', va='top', fontsize=14, color='blue')
-# plt.plot(xx, yy, color='black')
+#     # hatch: ('/', '//', '-', '+', 'x', '\\', '\\\\', '*', 'o', 'O', '.')
+#     shadow = plt.bar(x=0, height=1, width=20, hatch='//', color='white', edgecolor='grey')
+#     # loc: ('upper right', 'lower left', 'center', 'lower center', (0.4, 0.5) ...)
+#
+#     plt.scatter(6, 3, color='red')
+#     plt.text(6, 3, 0.23, ha='left', va='bottom', fontsize=12, color='red')
+#     plt.text(0 + 0.2, 3 + 0.3, 'AP=0.224', ha='left', va='bottom', fontsize=12, color='black')
+#     plt.text(0 + 0.2, 3 - 0.3, 'AP=0.224, FF=33%', ha='left', va='top', fontsize=12, color='blue')
+#
+#     # plt.xticks([5], [0.5], rotation=10)
+#
+#     plt.plot(xx, yy, color='black')
+#
+# fig.suptitle('Car', size=16, color='red')
+# fig.legend(handles=[shadow], labels=['Area where score < 0.05'], loc='upper right', fontsize=12)
+# plt.tight_layout()  # resolve the overlapping issue when using subplot()
+# plt.savefig(f'results/mpp_result/cckkc.jpg')
 # plt.show()
 
-a=1
-b=0
-c=0
-d=1
-if a and (b and c or d):
-    print('ccc')
+NAMES = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck',
+         'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat',
+         'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe',
+         'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard',
+         'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle',
+         'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
+         'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake',
+         'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop',
+         'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink',
+         'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush']
+
+bb = [len(aa) for aa in NAMES]
+print(max(bb))
