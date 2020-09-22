@@ -1,6 +1,6 @@
 build_stuff/build/
 configs/
-build_stuff/paa.egg-info/
+build_stuff/paa_minimal.egg-info
 weights/
 _C*
 __pycache__/
