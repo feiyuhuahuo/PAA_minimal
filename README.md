@@ -1,5 +1,5 @@
 ## PAA_minimal
-Minimal PyTorch implementation of [Probabilistic Anchor Assignment with IoU Prediction for Object Detection](https://arxiv.org/abs/2007.08103).  
+Minimal PyTorch implementation of ECCV2020: [Probabilistic Anchor Assignment with IoU Prediction for Object Detection](https://arxiv.org/abs/2007.08103).  
 The original project is [here](https://github.com/kkhoot/PAA).  
 
 ## Environments  
@@ -17,13 +17,14 @@ Other common packages.
 
 - Download weights and put the weight files in `weights` folder.  
 
-PAA trained weights.  
-I trained on two RTX-2080Ti GPUs. Following are results on COCO val2017. SV=score voting.
+#### PAA trained weights.  
+I trained on two RTX-2080Ti GPUs. Following are results on COCO val2017. SV=score voting.  
+The result is slightly different from the original paper because of a different training batch size and the training progress itself is a little unstable.  
 
-|cfg        |total iterations| mAP                         | Google Drive                                                                                       |Baidu Cloud                                                       |
-|:---------:|:--------------:|:---------------------------:|:--------------------------------------------------------------------------------------------------:|:----------------------------------------------------------------:|
-|res50_1x   |120000 (bs=12)  |40.2 (40.5 with SV)| [res50_1x_116000.pth](https://drive.google.com/file/d/1lePvujaE42xHXXN-pxIveHiE8bEt7Azg/view?usp=sharing)    |[password: mksf](https://pan.baidu.com/s/1XDeDwg1Xw9GJCucJNqdNZw) |
-|res101_2x  |288000 (bs=10)  |TBD  (40.5 with SV)| [res101_coco_800000.pth](https://drive.google.com/file/d/1KyjhkLEw0D8zP8IiJTTOR0j6PGecKbqS/view?usp=sharing) |[password: oubr](https://pan.baidu.com/s/1uX_v1RPISxgwQ2LdsbJrJQ) |
+|cfg        |total iterations| mAP                 | Google Drive                                                                                              |Baidu Cloud                                                       |
+|:---------:|:--------------:|:-------------------:|:---------------------------------------------------------------------------------------------------------:|:----------------------------------------------------------------:|
+|res50_1x   |120000 (bs=12)  |40.2 (40.5 with SV)  | [res50_1x_116000.pth](https://drive.google.com/file/d/1lePvujaE42xHXXN-pxIveHiE8bEt7Azg/view?usp=sharing) |[password: mksf](https://pan.baidu.com/s/1XDeDwg1Xw9GJCucJNqdNZw) |
+|res101_2x  |288000 (bs=10)  |44.2 (44.3 with SV)  | [res101_2x_287999.pth](https://drive.google.com/file/d/1n4hPtklHm2VK4eeFePT1peEJNdBzDopN/view?usp=sharing)|[password: 9hpa](https://pan.baidu.com/s/14kRXt6iNOMs3T647WEGCjw) |
 
 Backbone pre-trained weights.  
 

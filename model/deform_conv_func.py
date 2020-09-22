@@ -2,7 +2,7 @@ import torch
 from torch.autograd import Function
 from torch.autograd.function import once_differentiable
 from torch.nn.modules.utils import _pair
-import _C
+from build_stuff import _C
 
 
 class DeformConvFunction(Function):

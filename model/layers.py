@@ -23,11 +23,11 @@ class Conv2d(torch.nn.Conv2d):
     def forward(self, x):
         if x.numel() > 0:
             return super(Conv2d, self).forward(x)
-        # get output shape
 
+        # get output shape
         output_shape = [(i + 2 * p - (di * (k - 1) + 1)) // d + 1
-                        for i, p, di, k, d in zip(
-                x.shape[-2:], self.padding, self.dilation, self.kernel_size, self.stride)]
+                        for i, p, di, k, d in zip(x.shape[-2:], self.padding, self.dilation,
+                                                  self.kernel_size, self.stride)]
 
         output_shape = [x.shape[0], self.weight.shape[0]] + output_shape
         return _NewEmptyTensorOp.apply(x, output_shape)
@@ -37,15 +37,11 @@ class ConvTranspose2d(torch.nn.ConvTranspose2d):
     def forward(self, x):
         if x.numel() > 0:
             return super(ConvTranspose2d, self).forward(x)
-        # get output shape
 
+        # get output shape
         output_shape = [(i - 1) * d - 2 * p + (di * (k - 1) + 1) + op
-                        for i, p, di, k, d, op in zip(x.shape[-2:],
-                                                      self.padding,
-                                                      self.dilation,
-                                                      self.kernel_size,
-                                                      self.stride,
-                                                      self.output_padding)]
+                        for i, p, di, k, d, op in zip(x.shape[-2:], self.padding, self.dilation,
+                                                      self.kernel_size, self.stride, self.output_padding)]
 
         output_shape = [x.shape[0], self.bias.shape[0]] + output_shape
         return _NewEmptyTensorOp.apply(x, output_shape)
@@ -71,11 +67,11 @@ class DFConv2d(torch.nn.Module):
         else:
             offset_base_channels = kernel_size * kernel_size
         if with_modulated_dcn:
-            from paa_core.layers import ModulatedDeformConv
+            from model.deform_conv_module import ModulatedDeformConv
             offset_channels = offset_base_channels * 3  # default: 27
             conv_block = ModulatedDeformConv
         else:
-            from paa_core.layers import DeformConv
+            from model.deform_conv_module import DeformConv
             offset_channels = offset_base_channels * 2  # default: 18
             conv_block = DeformConv
         self.offset = Conv2d(in_channels,
@@ -122,10 +118,8 @@ class DFConv2d(torch.nn.Module):
 
 
 class FrozenBatchNorm2d(nn.Module):
-    # BatchNorm2d where the batch statistics and the affine parameters are fixed
-
-    def __init__(self, n):
-        super(FrozenBatchNorm2d, self).__init__()
+    def __init__(self, n):  # BatchNorm2d where the batch statistics and the affine parameters are fixed.
+        super().__init__()
         self.register_buffer("weight", torch.ones(n))
         self.register_buffer("bias", torch.zeros(n))
         self.register_buffer("running_mean", torch.zeros(n))

@@ -326,42 +326,42 @@ class SelfEval:
         print('\nDrawing precision-recall curves...')
         os.makedirs('results/mpp_result', exist_ok=True)
 
-        for i in range(self.C):
-            print(f'\r{i}/{self.C}, {NAMES[i]:>15}', end='')
+        for c in range(self.C):
+            print(f'\r{c}/{self.C}, {NAMES[c]:>15}', end='')
 
-            mAP = self.mr4(self.AP_matrix[i, 0, :])
+            mAP = self.mr4(self.AP_matrix[c, 0, :])
             fig = plt.figure(figsize=(15, 10))
-            fig.suptitle(f'{NAMES[i]}, mAP={mAP}', size=16, color='red')
+            fig.suptitle(f'{NAMES[c]}, mAP={mAP}', size=16, color='red')
 
-            for j in range(self.T):
-                recall = np.cumsum(self.r_record[i][0][j]).tolist()
+            for t in range(self.T):
+                recall = np.cumsum(self.r_record[c][0][t]).tolist()
                 recall.insert(0, 0.)   # insert 0. to supplement the base point
                 r_last = recall[-1]
-                precision = self.p_record[i][0][j].tolist()
-                precision.insert(0, 0.)
+                precision = self.p_record[c][0][t].tolist()
+                precision.insert(0, 1.)
 
                 # Every time we plot, we should use plt APIs to reset all things, or it will reuse
                 # the last plot window, and may cause bugs.
-                plt.subplot(3, 4, j + 1)
-                plt.title(f'thre={self.iou_thre[j]}', size=12, color='black')
+                plt.subplot(3, 4, t + 1)
+                plt.title(f'thre={self.iou_thre[t]}', size=12, color='black')
                 plt.xlim(0, r_last)
                 plt.xlabel('Recall', size=12)
                 plt.ylim(0, 1.1)
                 plt.ylabel('Precision', size=12)
                 plt.tick_params(labelsize=12)  # set tick font size
 
-                ap = self.AP_matrix[i, 0, j]
-                p_max, r_max, s_max, mpp, ff = self.MPP_matrix[i][0][j].tolist()
+                ap = self.AP_matrix[c, 0, t]
+                p_max, r_max, s_max, mpp, ff = self.MPP_matrix[c][0][t].tolist()
 
                 # draw the MPP rectangle
                 plt.hlines(p_max, xmin=0, xmax=r_max, color='blue', linestyles='dashed')
                 plt.vlines(r_max, ymin=0, ymax=p_max, color='blue', linestyles='dashed')
-                plt.text(r_last, 1.05, f'AP={ap:.3}', ha='right', va='top', fontsize=12, color='black')
-                plt.text(r_max * 0.1, p_max - 0.1, f'MPP={mpp:.3}\nFF={ff:.3}',
+                plt.text(r_last, 1.05, f'AP={ap:.3f}', ha='right', va='top', fontsize=12, color='black')
+                plt.text(r_max * 0.1, max(p_max - 0.1, 0.2), f'MPP={mpp:.3f}\nFF={ff:.3f}',
                          ha='left', va='top', fontsize=12, color='blue')
 
                 # draw the max recall point
-                plt.text(r_last * 1.04, -0.1, f'{round(r_last, 2)}', ha='center', va='bottom',
+                plt.text(r_last * 1.05, -0.1, f'{r_last:.2f}', ha='center', va='bottom',
                          fontsize=12, color='black', rotation=15)
 
                 # draw the score < 0.05 area
@@ -371,7 +371,7 @@ class SelfEval:
 
                 # draw the s_max point
                 plt.scatter(r_max, p_max, color='red')
-                plt.text(r_max, p_max, round(s_max, 2), ha='left', va='bottom', fontsize=12, color='red')
+                plt.text(r_max, p_max, f'{s_max:.2f}', ha='left', va='bottom', fontsize=12, color='red')
 
                 plt.plot(recall, precision, color='black')
 
@@ -379,7 +379,7 @@ class SelfEval:
             fig.legend(handles=[shadow], labels=['Area where score < 0.05'], loc='upper right', fontsize=12)
 
             plt.tight_layout()  # resolve the overlapping issue when using subplot()
-            plt.savefig(f'results/mpp_result/{i + 1}_{NAMES[i]}.jpg')
+            plt.savefig(f'results/mpp_result/{c + 1}_{NAMES[c]}.jpg')
             plt.close()
 
         print()

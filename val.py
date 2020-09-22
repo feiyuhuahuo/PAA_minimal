@@ -52,63 +52,63 @@ def inference(model, cfg, during_training=False):
     bar = ProgressBar(length=40, max_val=dl)
     timer.reset()
 
-    # with torch.no_grad():
-    #     for i, (img_list_batch, _) in enumerate(val_loader):
-    #         if i == 1:
-    #             timer.start()
-    #
-    #         with timer.counter('forward'):
-    #             img_tensor_batch = torch.stack([aa.img for aa in img_list_batch], dim=0).cuda()
-    #             c_pred, box_pred, iou_pred, anchors = model(img_tensor_batch)
-    #
-    #         with timer.counter('post_process'):
-    #             resized_size = [aa.resized_size for aa in img_list_batch]
-    #             pred_batch = post_process(cfg, c_pred, box_pred, iou_pred, anchors, resized_size)
-    #
-    #         with timer.counter('accumulate'):
-    #             for pred in pred_batch:
-    #                 pred.to_cpu()
-    #
-    #             for img_list, pred in zip(img_list_batch, pred_batch):
-    #                 if pred.box.shape[0] == 0:
-    #                     continue
-    #
-    #                 original_id = dataset.id_img_map[img_list.id]
-    #                 pred.resize(img_list.ori_size)
-    #                 pred.convert_mode("x1y1wh")
-    #
-    #                 boxes = pred.box.tolist()
-    #                 score = pred.score.tolist()
-    #                 label = pred.label.tolist()
-    #
-    #                 mapped_labels = [dataset.to_category_id[i] for i in label]
-    #                 coco_results.extend([{"image_id": original_id,
-    #                                       "category_id": mapped_labels[k],
-    #                                       "bbox": box,
-    #                                       "score": score[k]} for k, box in enumerate(boxes)])
-    #
-    #         aa = time.perf_counter()
-    #         if i > 0:
-    #             batch_time = aa - temp
-    #             timer.add_batch_time(batch_time)
-    #
-    #             time_name = ['batch', 'data', 'forward', 'post_process', 'accumulate']
-    #             t_t, t_d, t_f, t_pp, t_acc = timer.get_times(time_name)
-    #             fps, t_fps = 1 / (t_d + t_f + t_pp), 1 / t_t
-    #             bar_str = bar.get_bar(i + 1)
-    #             print(f'\rTesting: {bar_str} {i + 1}/{dl}, fps: {fps:.2f} | total fps: {t_fps:.2f} | t_t: {t_t:.3f} | '
-    #                   f't_d: {t_d:.3f} | t_f: {t_f:.3f} | t_pp: {t_pp:.3f} | t_acc: {t_acc:.3f}', end='')
-    #
-    #         temp = aa
-    #
-    # print('\n\nTest ended, doing evaluation...')
-    #
-    # json_name = cfg.weight.split('/')[-1].split('.')[0]
-    # file_path = f'results/{json_name}.json'
-    # with open(file_path, "w") as f:
-    #     json.dump(coco_results, f)
+    with torch.no_grad():
+        for i, (img_list_batch, _) in enumerate(val_loader):
+            if i == 1:
+                timer.start()
 
-    coco_dt = dataset.coco.loadRes('results/res50_1x_116000.json')
+            with timer.counter('forward'):
+                img_tensor_batch = torch.stack([aa.img for aa in img_list_batch], dim=0).cuda()
+                c_pred, box_pred, iou_pred, anchors = model(img_tensor_batch)
+
+            with timer.counter('post_process'):
+                resized_size = [aa.resized_size for aa in img_list_batch]
+                pred_batch = post_process(cfg, c_pred, box_pred, iou_pred, anchors, resized_size)
+
+            with timer.counter('accumulate'):
+                for pred in pred_batch:
+                    pred.to_cpu()
+
+                for img_list, pred in zip(img_list_batch, pred_batch):
+                    if pred.box.shape[0] == 0:
+                        continue
+
+                    original_id = dataset.id_img_map[img_list.id]
+                    pred.resize(img_list.ori_size)
+                    pred.convert_mode("x1y1wh")
+
+                    boxes = pred.box.tolist()
+                    score = pred.score.tolist()
+                    label = pred.label.tolist()
+
+                    mapped_labels = [dataset.to_category_id[i] for i in label]
+                    coco_results.extend([{"image_id": original_id,
+                                          "category_id": mapped_labels[k],
+                                          "bbox": box,
+                                          "score": score[k]} for k, box in enumerate(boxes)])
+
+            aa = time.perf_counter()
+            if i > 0:
+                batch_time = aa - temp
+                timer.add_batch_time(batch_time)
+
+                time_name = ['batch', 'data', 'forward', 'post_process', 'accumulate']
+                t_t, t_d, t_f, t_pp, t_acc = timer.get_times(time_name)
+                fps, t_fps = 1 / (t_d + t_f + t_pp), 1 / t_t
+                bar_str = bar.get_bar(i + 1)
+                print(f'\rTesting: {bar_str} {i + 1}/{dl}, fps: {fps:.2f} | total fps: {t_fps:.2f} | t_t: {t_t:.3f} | '
+                      f't_d: {t_d:.3f} | t_f: {t_f:.3f} | t_pp: {t_pp:.3f} | t_acc: {t_acc:.3f}', end='')
+
+            temp = aa
+
+    print('\n\nTest ended, doing evaluation...')
+
+    json_name = cfg.weight.split('/')[-1].split('.')[0]
+    file_path = f'results/{json_name}.json'
+    with open(file_path, "w") as f:
+        json.dump(coco_results, f)
+
+    coco_dt = dataset.coco.loadRes(file_path)
 
     if cfg.val_api == 'Improved COCO':
         from my_cocoeval.cocoeval import SelfEval

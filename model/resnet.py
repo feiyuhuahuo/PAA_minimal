@@ -18,7 +18,7 @@ res101_fpn = tuple(StageSpec(index=i, block_count=c, return_features=r)
 
 class ResNet(nn.Module):
     def __init__(self, cfg):
-        super(ResNet, self).__init__()
+        super().__init__()
         backbone_dict = {'res50': res50_fpn, 'res101': res101_fpn}
 
         self.stem = BaseStem()
@@ -92,7 +92,6 @@ class Bottleneck(nn.Module):
 
         if in_channels != out_channels:
             down_stride = stride if dilation == 1 else 1
-
             self.downsample = nn.Sequential(Conv2d(in_channels, out_channels, kernel_size=1,
                                                    stride=down_stride, bias=False),
                                             FrozenBatchNorm2d(out_channels))

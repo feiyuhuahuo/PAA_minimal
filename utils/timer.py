@@ -49,17 +49,6 @@ def get_times(time_name):
     return return_time
 
 
-def print_timer():
-    print('---------Time Statistics---------')
-    for k, v in times.items():
-        print(f'{k}: {np.mean(v):.4f}')
-
-    forward_fps = 1 / np.mean(times['forward'])
-    total_fps = 1 / np.mean(times['batch'])
-    print(f'forward fps: {forward_fps:.2f}, total fps: {total_fps:.2f}')
-    print('---------------------------------')
-
-
 class counter:
     def __init__(self, name):
         self.name = name

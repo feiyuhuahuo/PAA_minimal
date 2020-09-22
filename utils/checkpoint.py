@@ -158,10 +158,10 @@ class Checkpointer:
 
     def load(self):
         if self.cfg.resume is not None:
-            print(f'Resume training from {self.cfg.resume}.')
+            print(f'Resume training with {self.cfg.resume}.')
             self.model.load_state_dict(torch.load(self.cfg.resume), strict=True)
         else:
-            print(f'Initialize training from {self.cfg.weight}.')
+            print(f'Initialize training with {self.cfg.weight}.')
             ckpt = self.load_resnet_c2_format(self.cfg.weight)
             self.align_load(self.model, ckpt['model'])
 

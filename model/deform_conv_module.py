@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 from torch.nn.modules.utils import _pair
-from .deform_conv_func import deform_conv, modulated_deform_conv
+from model.deform_conv_func import deform_conv, modulated_deform_conv
 
 
 class DeformConv(nn.Module):
