@@ -6,4 +6,4 @@ _C*
 __pycache__/
 results/
 .idea/
-
+val_with_json.py

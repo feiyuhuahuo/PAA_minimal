@@ -48,7 +48,7 @@ class SelfEval:
             self.dt[dt['image_id'], dt['category_id']].append(dt)
 
     def evaluate(self):
-        self.match_record = [[[None for _ in range(self.N)] for _ in range(self.A)] for _ in range(self.C)]
+        self.match_record = [[['no_gt_no_dt' for _ in range(self.N)] for _ in range(self.A)] for _ in range(self.C)]
 
         for c, cat_id in enumerate(self.catIds):
             for a, area in enumerate(self.area):
@@ -56,15 +56,10 @@ class SelfEval:
                     print(f'\rMatching ground-truths and detections: C: {c}, A: {a}, N: {n}', end='')
 
                     gt_list, dt_list = self.gt[img_id, cat_id], self.dt[img_id, cat_id]
+
                     if len(gt_list) == 0 and len(dt_list) == 0:
                         continue
-                    else:
-                        # different sorting method generates slightly different results.
-                        # 'mergesort' is used to be consistent as the COCO Matlab implementation.
-                        index = np.argsort([-aa['score'] for aa in dt_list], kind='mergesort')
-                        dt_list = [dt_list[i] for i in index]
-                        dt_list = dt_list[0: self.max_det]  # if len(one_dt) < self.max_det, no influence
-
+                    elif len(gt_list) != 0 and len(dt_list) == 0:
                         for one_gt in gt_list:
                             if one_gt['iscrowd'] or one_gt['area'] < area[0] or one_gt['area'] > area[1]:
                                 one_gt['_ignore'] = 1
@@ -75,20 +70,45 @@ class SelfEval:
                         index = np.argsort([aa['_ignore'] for aa in gt_list], kind='mergesort')
                         gt_list = [gt_list[i] for i in index]
 
-                        box_gt = [aa['bbox'] for aa in gt_list]
-                        box_dt = [aa['bbox'] for aa in dt_list]
-
-                        iscrowd = [int(aa['iscrowd']) for aa in gt_list]
-                        IoUs = maskUtils.iou(box_dt, box_gt, iscrowd)  # shape: (num_dt, num_gt)
-
-                        gt_matched = np.zeros((self.T, len(gt_list)))
                         gt_ignore = np.array([aa['_ignore'] for aa in gt_list])
-                        dt_matched = np.zeros((self.T, len(dt_list)))
-                        dt_ignore = np.zeros((self.T, len(dt_list)))
+                        num_gt = np.count_nonzero(gt_ignore == 0)
+                        self.match_record[c][a][n] = {'has_gt_no_dt': 'pass', 'num_gt': num_gt}
+                    else:
+                        # different sorting method generates slightly different results.
+                        # 'mergesort' is used to be consistent as the COCO Matlab implementation.
+                        index = np.argsort([-aa['score'] for aa in dt_list], kind='mergesort')
+                        dt_list = [dt_list[i] for i in index]
+                        dt_list = dt_list[0: self.max_det]  # if len(one_dt) < self.max_det, no influence
 
-                        # Pay attent to the logic, if (len(gt_list) == 0) xor (len(dt_list) == 0) is True,
-                        # the below 'if' will not be entered, but the dt scores and num_gt should always be recorded.
-                        if len(IoUs) != 0:  # this equal to (len(gt_list) != 0) and (len(dt_list) != 0)
+                        if len(gt_list) == 0 and len(dt_list) != 0:
+                            dt_matched = np.zeros((self.T, len(dt_list)))  # all dt shoule be fp, so set as 0
+                            # set unmatched detections which are outside of area range to ignore
+                            dt_out_range = [aa['area'] < area[0] or aa['area'] > area[1] for aa in dt_list]
+                            dt_ignore = np.repeat(np.array(dt_out_range)[None, :], repeats=self.T, axis=0)
+                            num_gt = 0
+                        else:
+                            for one_gt in gt_list:
+                                if one_gt['iscrowd'] or one_gt['area'] < area[0] or one_gt['area'] > area[1]:
+                                    one_gt['_ignore'] = 1
+                                else:
+                                    one_gt['_ignore'] = 0
+
+                            # sort ignored gt to last
+                            index = np.argsort([aa['_ignore'] for aa in gt_list], kind='mergesort')
+                            gt_list = [gt_list[i] for i in index]
+
+                            gt_matched = np.zeros((self.T, len(gt_list)))
+                            gt_ignore = np.array([aa['_ignore'] for aa in gt_list])
+                            dt_matched = np.zeros((self.T, len(dt_list)))
+                            dt_ignore = np.zeros((self.T, len(dt_list)))
+
+                            box_gt = [aa['bbox'] for aa in gt_list]
+                            box_dt = [aa['bbox'] for aa in dt_list]
+
+                            iscrowd = [int(aa['iscrowd']) for aa in gt_list]
+                            IoUs = maskUtils.iou(box_dt, box_gt, iscrowd)  # shape: (num_dt, num_gt)
+
+                            assert len(IoUs) != 0, 'Bug, IoU should not be None when gt and dt are both not empty.'
                             for t, one_thre in enumerate(self.iou_thre):
                                 for d, one_dt in enumerate(dt_list):
                                     iou = one_thre
@@ -115,19 +135,19 @@ class SelfEval:
                                     dt_matched[t, d] = gt_list[g_temp]['id']
                                     gt_matched[t, g_temp] = one_dt['id']
 
-                        # set unmatched detections which are outside of area range to ignore
-                        dt_out_range = [aa['area'] < area[0] or aa['area'] > area[1] for aa in dt_list]
-                        dt_out_range = np.array(dt_out_range)[None, :]
-                        dt_out_range = np.logical_and(dt_matched == 0, np.repeat(dt_out_range, repeats=self.T, axis=0))
-                        dt_ignore = np.logical_or(dt_ignore, dt_out_range)
-                        num_gt = np.count_nonzero(gt_ignore == 0)
+                            dt_out_range = [aa['area'] < area[0] or aa['area'] > area[1] for aa in dt_list]
+                            dt_out_range = np.repeat(np.array(dt_out_range)[None, :], repeats=self.T, axis=0)
+                            dt_out_range = np.logical_and(dt_matched == 0, dt_out_range)
+
+                            dt_ignore = np.logical_or(dt_ignore, dt_out_range)
+                            num_gt = np.count_nonzero(gt_ignore == 0)
 
                         self.match_record[c][a][n] = {'dt_match': dt_matched,
                                                       'dt_score': [aa['score'] for aa in dt_list],
                                                       'dt_ignore': dt_ignore,
                                                       'num_gt': num_gt}
 
-    def accumulate(self):
+    def accumulate(self):  # self.match_record is all this function need
         print('\nComputing recalls and precisions...')
 
         R = len(self.recall_points)
@@ -139,14 +159,16 @@ class SelfEval:
         # TODO: check if the logic is right, especially when there are absent categories when evaling part of images
         for c in range(self.C):
             for a in range(self.A):
-                temp_dets = self.match_record[c][a][:]
-                temp_dets = [aa for aa in temp_dets if aa is not None]
+                temp_dets = self.match_record[c][a]
+                temp_dets = [aa for aa in temp_dets if aa is not 'no_gt_no_dt']
 
                 num_gt = sum([aa['num_gt'] for aa in temp_dets])
-                if num_gt == 0:  # The gt category is absent, so it should be excluded when computing mAP.
-                    continue
+                assert num_gt != 0, f'Error, category {NAMES[c]} does not exist in validation images.'
 
-                if len(temp_dets) == 0:
+                # exclude images which have no dt
+                temp_dets = [aa for aa in temp_dets if 'has_gt_no_dt' not in aa]
+
+                if len(temp_dets) == 0:  # if no detection found for all validation images
                     # If continue directly, the realted record would be 'None',
                     # which is excluded when computing mAP in summarize().
                     for t in range(self.T):
@@ -172,6 +194,7 @@ class SelfEval:
                     tp = np.array(tp)
                     fp = np.array(fp)
                     recall = (tp / num_gt).tolist()
+                    # if no dt found, tp and fp are both 0, so plus a infinitesimal to avoid 0/0
                     precision = (tp / (fp + tp + np.spacing(1))).tolist()
 
                     # numpy is slow without cython optimization for accessing elements
@@ -181,7 +204,7 @@ class SelfEval:
                         if p_smooth[i] > p_smooth[i - 1]:
                             p_smooth[i - 1] = p_smooth[i]
 
-                    if self.all_points:
+                    if self.all_points:  # TODO: dt_matched is empty by little chance which raises a bug
                         p_reduced, s_reduced = [], []
                         r_reduced = list(set(recall))
                         r_reduced.sort()
@@ -335,7 +358,7 @@ class SelfEval:
 
             for t in range(self.T):
                 recall = np.cumsum(self.r_record[c][0][t]).tolist()
-                recall.insert(0, 0.)   # insert 0. to supplement the base point
+                recall.insert(0, 0.)  # insert 0. to supplement the base point
                 r_last = recall[-1]
                 precision = self.p_record[c][0][t].tolist()
                 precision.insert(0, 1.)
