@@ -23,7 +23,7 @@ The result is slightly different from the original paper because of a different 
 
 |cfg        |total iterations| mAP                 | Google Drive                                                                                              |Baidu Cloud                                                       |
 |:---------:|:--------------:|:-------------------:|:---------------------------------------------------------------------------------------------------------:|:----------------------------------------------------------------:|
-|res50_1x   |120000 (bs=12)  |40.2 (40.5 with SV)  | [res50_1x_116000.pth](https://drive.google.com/file/d/1lePvujaE42xHXXN-pxIveHiE8bEt7Azg/view?usp=sharing) |[password: mksf](https://pan.baidu.com/s/1XDeDwg1Xw9GJCucJNqdNZw) |
+|res50_1x   |120000 (bs=12)  |40.2 (40.5 with SV)  | [res50_1x_116000.pth](https://drive.google.com/file/d/1lePvujaE42xHXXN-pxIveHiE8bEt7Azg/view?usp=sharing) |[password: 070q](https://pan.baidu.com/s/1Pl9vDFL77UfQhF7-Z4v0uw) |
 |res101_2x  |288000 (bs=10)  |44.2 (44.3 with SV)  | [res101_2x_287999.pth](https://drive.google.com/file/d/1n4hPtklHm2VK4eeFePT1peEJNdBzDopN/view?usp=sharing)|[password: 9hpa](https://pan.baidu.com/s/14kRXt6iNOMs3T647WEGCjw) |
 
 Backbone pre-trained weights.  

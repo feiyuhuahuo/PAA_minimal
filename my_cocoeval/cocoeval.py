@@ -194,7 +194,6 @@ class SelfEval:
                     tp = np.array(tp)
                     fp = np.array(fp)
                     recall = (tp / num_gt).tolist()
-                    # if no dt found, tp and fp are both 0, so plus a infinitesimal to avoid 0/0
                     precision = (tp / (fp + tp + np.spacing(1))).tolist()
 
                     # numpy is slow without cython optimization for accessing elements
@@ -204,7 +203,7 @@ class SelfEval:
                         if p_smooth[i] > p_smooth[i - 1]:
                             p_smooth[i - 1] = p_smooth[i]
 
-                    if self.all_points:  # TODO: dt_matched is empty by little chance which raises a bug
+                    if self.all_points:
                         p_reduced, s_reduced = [], []
                         r_reduced = list(set(recall))
                         r_reduced.sort()
